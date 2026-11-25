@@ -1,23 +1,26 @@
 // Step 5-7 tests (auth, API, runtime state, server config, HTTP smoke). Included by test-main.cpp after
 // test-identity.inc (uses its helpers: synth_embedding, temp_dir, read_text, kFace).
 
-static void test_constant_time_and_pin()
+static void test_constant_time_and_access_code()
 {
 	CHECK(constant_time_equals("123456", "123456"));
 	CHECK(!constant_time_equals("123456", "123457"));
 	CHECK(!constant_time_equals("123456", "12345"));
 	CHECK(!constant_time_equals("", "1"));
 	CHECK(constant_time_equals("", ""));
-	for (int i = 0; i < 50; ++i) {
-		const std::string pin = generate_pin();
-		CHECK(pin.size() == 6);
-		CHECK(pin.find_first_not_of("0123456789") == std::string::npos);
+	for (int i = 0; i < 200; ++i) {
+		const std::string code = generate_access_code();
+		CHECK(code.size() == 10);
+		CHECK(code.find_first_not_of("abcdefghjkmnpqrstuvwxyz23456789") == std::string::npos); // no 0 o 1 l i
+		CHECK(is_valid_access_code(code));
 	}
+	CHECK(generate_access_code() != generate_access_code());
+	CHECK(!is_valid_access_code("123456")); // an old 6-digit PIN
 }
 
-static void test_pin_lockout()
+static void test_code_lockout()
 {
-	PinAuthenticator auth("424242", 5, 60000);
+	CodeAuthenticator auth("424242");
 	CHECK(auth.check("1.1.1.1", "424242", 0) == AuthResult::Ok);
 	CHECK(auth.check("1.1.1.1", "", 0) == AuthResult::Denied); // missing PIN: denied, not counted
 	for (int i = 0; i < 20; ++i)
@@ -41,7 +44,7 @@ static void test_pin_lockout()
 	CHECK(auth.check("4.4.4.4", "424242", 60101) == AuthResult::Ok); // lock expired
 	CHECK(auth.retry_after_ms("4.4.4.4", 60101) == 0);
 
-	auth.set_pin("111111");
+	auth.set_code("111111");
 	CHECK(auth.check("6.6.6.6", "424242", 0) == AuthResult::Denied);
 	CHECK(auth.check("6.6.6.6", "111111", 0) == AuthResult::Ok);
 }
@@ -108,13 +111,16 @@ struct ApiFixture {
 	HimitsukaoService svc;
 	IdentityManager mgr;
 	int64_t now = 100000;
+	std::string host = "10.0.0.2:8787";
+	std::vector<std::string> logs;
 	ApiHandler api;
 	std::string key;
 	int style_saves = 0;
 
 	ApiFixture()
 		: mgr(svc.database(), svc.board(), IdentityConfig{}),
-		  api(svc, "<html>phone</html>", "246810", [this] { return now; })
+		  api(svc, "<html>phone</html>", "k7m2q9x4cd", [this] { return now; },
+		      [this](const std::string &m) { logs.push_back(m); })
 	{
 		key = svc.register_instance("Cam 1", &mgr);
 		svc.set_style_listener([this] { ++style_saves; });
@@ -122,13 +128,14 @@ struct ApiFixture {
 	~ApiFixture() { svc.unregister_instance(key); }
 
 	ApiResponse call(const std::string &method, const std::string &path, const std::string &body = {},
-			 const std::string &pin = "246810", const std::string &ip = "10.0.0.2")
+			 const std::string &code = "k7m2q9x4cd", const std::string &ip = "10.0.0.2")
 	{
 		ApiRequest r;
 		r.method = method;
 		r.path = path;
 		r.body = body;
-		r.pin = pin;
+		r.code = code;
+		r.host = host;
 		r.remote_ip = ip;
 		return api.handle(r);
 	}
@@ -150,16 +157,16 @@ static void test_api_auth_and_static()
 
 	// 5 wrong PINs then 429 with Retry-After, even for the right PIN; other IPs still work.
 	for (int i = 0; i < 5; ++i)
-		CHECK(fx.call("GET", "/api/state", {}, "999999", "9.9.9.9").status == 401);
-	auto locked = fx.call("GET", "/api/state", {}, "246810", "9.9.9.9");
+		CHECK(fx.call("GET", "/api/state", {}, "999999", "10.9.9.9").status == 401);
+	auto locked = fx.call("GET", "/api/state", {}, "k7m2q9x4cd", "10.9.9.9");
 	CHECK(locked.status == 429 && locked.retry_after_s > 0 && locked.retry_after_s <= 60);
 	CHECK(fx.call("GET", "/api/state").status == 200);
 	fx.now += 61000;
-	CHECK(fx.call("GET", "/api/state", {}, "246810", "9.9.9.9").status == 200);
+	CHECK(fx.call("GET", "/api/state", {}, "k7m2q9x4cd", "10.9.9.9").status == 200);
 
-	fx.api.set_pin("135790");
+	fx.api.set_code("h5n8v3w6tb");
 	CHECK(fx.call("GET", "/api/state").status == 401);
-	CHECK(fx.call("GET", "/api/state", {}, "135790").status == 200);
+	CHECK(fx.call("GET", "/api/state", {}, "h5n8v3w6tb").status == 200);
 }
 
 static void test_api_state_mode_style()
@@ -296,7 +303,8 @@ static void test_server_config()
 	ServerConfig c;
 	auto r = c.load(path);
 	CHECK(r.ok && !r.existed);
-	CHECK(c.port == 8787 && c.pin.size() == 6 && c.style == Style::Pixel);
+	CHECK(c.port == 8787 && c.code.size() == 10 && c.style == Style::Pixel && !c.enabled);
+	CHECK(r.needs_save);
 	c.port = 9000;
 	c.style = Style::Gaussian;
 	c.strength = 77;
@@ -307,7 +315,7 @@ static void test_server_config()
 	ServerConfig d;
 	r = d.load(path);
 	CHECK(r.ok && r.existed);
-	CHECK(d.port == 9000 && d.pin == c.pin && d.style == Style::Gaussian && d.strength == 77);
+	CHECK(d.port == 9000 && d.code == c.code && d.style == Style::Gaussian && d.strength == 77);
 
 	{
 		std::ofstream out(path);
@@ -316,7 +324,7 @@ static void test_server_config()
 	ServerConfig e;
 	r = e.load(path);
 	CHECK(!r.ok && r.existed && std::filesystem::exists(path + ".bad"));
-	CHECK(e.port == 8787 && e.pin.size() == 6);
+	CHECK(e.port == 8787 && e.code.size() == 10 && !e.enabled);
 
 	{
 		std::ofstream out(path);
@@ -324,13 +332,13 @@ static void test_server_config()
 	}
 	ServerConfig g;
 	CHECK(g.load(path).ok);
-	CHECK(g.port == 8787 && g.strength == 100 && g.style == Style::Pixel && g.pin.size() == 6);
+	CHECK(g.port == 8787 && g.strength == 100 && g.style == Style::Pixel && g.code.size() == 10);
 }
 
 static void test_http_server_smoke()
 {
 	HimitsukaoService svc;
-	ApiHandler api(svc, "<html>hi</html>", "314159", [] { return int64_t(0); });
+	ApiHandler api(svc, "<html>hi</html>", "p4r7s2u9ye", [] { return int64_t(0); });
 	HttpServer server(api);
 	std::string error;
 	CHECK(server.start("127.0.0.1", 0, &error));
@@ -344,7 +352,7 @@ static void test_http_server_smoke()
 		CHECK(page && page->status == 200 && page->body == "<html>hi</html>");
 		auto unauth = cli.Get("/api/state");
 		CHECK(unauth && unauth->status == 401);
-		httplib::Headers h{{"X-HimitsuKao-Pin", "314159"}};
+		httplib::Headers h{{"X-HimitsuKao-Code", "p4r7s2u9ye"}};
 		auto state = cli.Get("/api/state", h);
 		CHECK(state && state->status == 200);
 		CHECK(state && state->get_header_value("Cache-Control") == "no-store");

@@ -53,6 +53,7 @@ add_library(
   src/core/image-utils.cpp
   src/core/himitsukao-service.cpp
   src/core/auth.cpp
+  src/core/ip-filter.cpp
   src/core/api.cpp
   src/core/server-config.cpp
   src/core/http-server.cpp

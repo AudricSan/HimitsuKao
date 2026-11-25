@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 
 #include "auth.h"
+#include "file-util.h"
 
 namespace himitsukao {
 
@@ -20,7 +21,8 @@ LoadResult ServerConfig::load(const std::string &path)
 	const fs::path p = fs::u8path(path);
 	std::error_code ec;
 	if (!fs::exists(p, ec)) {
-		pin = generate_pin();
+		code = generate_access_code();
+		result.needs_save = true;
 		result.message = "no server config yet, generated defaults";
 		return result;
 	}
@@ -31,33 +33,43 @@ LoadResult ServerConfig::load(const std::string &path)
 			throw std::runtime_error("cannot open file");
 		const json j = json::parse(in);
 		ServerConfig c;
+		c.enabled = j.value("enabled", false);
 		c.port = j.value("port", c.port);
-		c.pin = j.value("pin", std::string());
+		c.code = j.value("code", std::string());
 		parse_style(j.value("style", std::string("pixel")), c.style);
 		c.strength = std::clamp(j.value("strength", c.strength), kMinStrength, kMaxStrength);
-		if (c.port < 1 || c.port > 65535)
+		if (c.port < 1024 || c.port > 65535)
 			c.port = 8787;
-		if (c.pin.empty())
-			c.pin = generate_pin();
+		if (!is_valid_access_code(c.code)) {
+			// Missing, or an old 6-digit PIN: replace it (the old "pin" key is simply dropped on the next save).
+			c.code = generate_access_code();
+			result.needs_save = true;
+			result.message = "access code (re)generated";
+		} else {
+			result.message = "server config loaded";
+		}
+		if (j.contains("pin"))
+			result.needs_save = true; // drop the legacy key
 		*this = c;
-		result.message = "server config loaded";
 	} catch (const std::exception &e) {
 		*this = ServerConfig{};
-		pin = generate_pin();
+		code = generate_access_code();
 		result.ok = false;
+		result.needs_save = true;
 		fs::path bad = p;
 		bad += ".bad";
 		std::error_code cec;
 		fs::copy_file(p, bad, fs::copy_options::overwrite_existing, cec);
 		result.message = std::string("server config is corrupt (") + e.what() +
-				 "), using defaults and a new PIN; backup: " + bad.u8string();
+				 "), using defaults and a new access code; backup: " + bad.u8string();
 	}
 	return result;
 }
 
 bool ServerConfig::save(const std::string &path) const
 {
-	const json root = {{"port", port}, {"pin", pin}, {"style", style_name(style)}, {"strength", strength}};
+	const json root = {{"enabled", enabled}, {"port", port},         {"code", code},
+			   {"style", style_name(style)}, {"strength", strength}};
 	const fs::path p = fs::u8path(path);
 	fs::path tmp = p;
 	tmp += ".tmp";
@@ -74,6 +86,7 @@ bool ServerConfig::save(const std::string &path) const
 			if (!out)
 				return false;
 		}
+		restrict_to_owner(tmp);
 		fs::rename(tmp, p);
 		return true;
 	} catch (const std::exception &) {

@@ -13,6 +13,9 @@
 
 namespace himitsukao {
 
+enum class EnrollError { None, UnknownInstance, Busy };
+constexpr size_t kMaxPendingEnrollments = 8; // per filter instance
+
 struct LiveFace {
 	std::string instance_key;   // which filter instance sees this face
 	std::string instance_label; // human readable name of that instance
@@ -52,8 +55,9 @@ public:
 	std::vector<PersonInfo> known_people() const { return db_.list(); }
 
 	// Starts enrolling the face of `track_id` seen by `instance_key`. Returns the request id, or an empty string if
-	// the instance does not exist.
-	std::string enroll(const std::string &instance_key, int track_id, const std::string &name, bool session);
+	// the instance does not exist or already has kMaxPendingEnrollments requests in flight (see `error`).
+	std::string enroll(const std::string &instance_key, int track_id, const std::string &name, bool session,
+			   EnrollError *error = nullptr);
 	EnrollStatus enroll_status(const std::string &request_id) const { return board_.get(request_id); }
 
 	// Removes a person (and saves the database) and re-masks them immediately on every live track.

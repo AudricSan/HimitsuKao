@@ -1,5 +1,7 @@
 #include "face-database.h"
 
+#include "file-util.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -154,6 +156,7 @@ bool FaceDatabase::save()
 			if (!out)
 				return false;
 		}
+		restrict_to_owner(tmp);
 		fs::rename(tmp, p); // replaces the destination (atomic on the same volume)
 		return true;
 	} catch (const std::exception &) {

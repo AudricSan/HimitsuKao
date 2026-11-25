@@ -1,7 +1,10 @@
 // Development tool: serves the phone page (src/web/index.html, read from disk on each start) with two FAKE faces,
 // so the page and the API can be tried from a phone without OBS.
 //
-//   himitsukao_devserver [port] [path/to/index.html]      PIN: 123456
+//   himitsukao_devserver [port] [path/to/index.html] [--lan]      access code: devcode234
+//
+// By default it listens on 127.0.0.1 only; --lan listens on every interface (the same IP allowlist as the plugin
+// still applies: LAN, Tailscale and loopback clients only).
 //
 // Face "A" and face "B" are synthetic: enrolling one of them un-masks it (its badge becomes a name), removing the
 // person from the "Known" list masks it again. Nothing is written to disk.
@@ -12,7 +15,9 @@
 #include <fstream>
 #include <random>
 #include <sstream>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include <opencv2/imgproc.hpp>
 
@@ -34,8 +39,16 @@ static Embedding fake_embedding(unsigned seed)
 
 int main(int argc, char **argv)
 {
-	const int port = argc > 1 ? std::atoi(argv[1]) : 8787;
-	const std::string page_path = argc > 2 ? argv[2] : "src/web/index.html";
+	bool lan = false;
+	std::vector<std::string> args;
+	for (int i = 1; i < argc; ++i) {
+		if (std::string(argv[i]) == "--lan")
+			lan = true;
+		else
+			args.push_back(argv[i]);
+	}
+	const int port = args.size() > 0 ? std::atoi(args[0].c_str()) : 8787;
+	const std::string page_path = args.size() > 1 ? args[1] : "src/web/index.html";
 	std::ifstream in(page_path, std::ios::binary);
 	if (!in) {
 		std::fprintf(stderr, "cannot read %s (pass the path to src/web/index.html as 2nd argument)\n",
@@ -54,10 +67,10 @@ int main(int argc, char **argv)
 	HimitsukaoService service;
 	IdentityManager manager(service.database(), service.board(), IdentityConfig{});
 	service.register_instance("Fake camera", &manager);
-	ApiHandler api(service, page.str(), "123456", now_ms);
+	ApiHandler api(service, page.str(), "devcode234", now_ms);
 	HttpServer server(api);
 	std::string error;
-	if (!server.start("0.0.0.0", port, &error)) {
+	if (!server.start(lan ? "0.0.0.0" : "127.0.0.1", port, &error)) {
 		std::fprintf(stderr, "%s\n", error.c_str());
 		return 1;
 	}

@@ -17,70 +17,135 @@ bool constant_time_equals(const std::string &a, const std::string &b)
 	return diff == 0;
 }
 
-std::string generate_pin()
+std::string generate_access_code()
 {
+	// 23 letters (no i, l, o) + 8 digits (no 0, 1) = 31 symbols: 10 characters ~ 49.5 bits.
+	static const char alphabet[] = "abcdefghjkmnpqrstuvwxyz23456789";
+	constexpr size_t n = sizeof(alphabet) - 1;
 	std::random_device rd;
-	std::uniform_int_distribution<int> dist(0, 999999);
-	std::string pin = std::to_string(dist(rd));
-	return std::string(6 - pin.size(), '0') + pin;
+	std::uniform_int_distribution<size_t> dist(0, n - 1);
+	std::string code;
+	for (size_t i = 0; i < kAccessCodeLength; ++i)
+		code += alphabet[dist(rd)];
+	return code;
 }
 
-PinAuthenticator::PinAuthenticator(std::string pin, int max_failures, int64_t lock_ms)
-	: pin_(std::move(pin)), max_failures_(max_failures), lock_ms_(lock_ms)
+bool is_valid_access_code(const std::string &code)
 {
+	return code.size() >= kAccessCodeLength;
 }
 
-void PinAuthenticator::set_pin(const std::string &pin)
-{
-	std::lock_guard<std::mutex> lock(mutex_);
-	pin_ = pin;
-}
+CodeAuthenticator::CodeAuthenticator(std::string code) : code_(std::move(code)) {}
 
-std::string PinAuthenticator::pin() const
-{
-	std::lock_guard<std::mutex> lock(mutex_);
-	return pin_;
-}
+CodeAuthenticator::CodeAuthenticator(std::string code, Limits limits) : code_(std::move(code)), limits_(limits) {}
 
-int64_t PinAuthenticator::retry_after_ms(const std::string &ip, int64_t now_ms) const
+void CodeAuthenticator::set_code(const std::string &code)
 {
 	std::lock_guard<std::mutex> lock(mutex_);
+	code_ = code;
+}
+
+std::string CodeAuthenticator::code() const
+{
+	std::lock_guard<std::mutex> lock(mutex_);
+	return code_;
+}
+
+int64_t CodeAuthenticator::retry_after_ms(const std::string &ip, int64_t now_ms) const
+{
+	std::lock_guard<std::mutex> lock(mutex_);
+	int64_t until = global_locked_until_ms_;
 	const auto it = entries_.find(ip);
-	if (it == entries_.end() || it->second.locked_until_ms <= now_ms)
-		return 0;
-	return it->second.locked_until_ms - now_ms;
+	if (it != entries_.end())
+		until = std::max(until, it->second.locked_until_ms);
+	return until > now_ms ? until - now_ms : 0;
 }
 
-AuthResult PinAuthenticator::check(const std::string &ip, const std::string &supplied_pin, int64_t now_ms)
+bool CodeAuthenticator::take_global_lock_event()
+{
+	std::lock_guard<std::mutex> lock(mutex_);
+	const bool e = global_event_;
+	global_event_ = false;
+	return e;
+}
+
+size_t CodeAuthenticator::tracked_ips() const
+{
+	std::lock_guard<std::mutex> lock(mutex_);
+	return entries_.size();
+}
+
+// Drops only expired entries (not locked, and no failure for a whole global window): partial counts of recent
+// attackers are kept. If the table is still full, the least recently active entries go first.
+void CodeAuthenticator::prune_locked(int64_t now_ms)
+{
+	if (entries_.size() < limits_.max_entries)
+		return;
+	for (auto it = entries_.begin(); it != entries_.end();) {
+		const Entry &e = it->second;
+		if (e.locked_until_ms <= now_ms && now_ms - e.last_activity_ms > limits_.global_window_ms)
+			it = entries_.erase(it);
+		else
+			++it;
+	}
+	while (entries_.size() >= limits_.max_entries) {
+		auto oldest = entries_.begin();
+		for (auto it = entries_.begin(); it != entries_.end(); ++it)
+			if (it->second.last_activity_ms < oldest->second.last_activity_ms)
+				oldest = it;
+		entries_.erase(oldest);
+	}
+}
+
+AuthResult CodeAuthenticator::check(const std::string &ip, const std::string &supplied_code, int64_t now_ms,
+				    bool is_loopback)
 {
 	std::lock_guard<std::mutex> lock(mutex_);
 
-	if (entries_.size() > 1000) { // bound memory: drop expired entries
-		for (auto it = entries_.begin(); it != entries_.end();) {
-			if (it->second.locked_until_ms <= now_ms)
-				it = entries_.erase(it);
-			else
-				++it;
+	// Global lock: every remote client is rejected, even with the right code.
+	if (!is_loopback && global_locked_until_ms_ > now_ms)
+		return AuthResult::Locked;
+
+	auto it = entries_.find(ip);
+	if (it != entries_.end()) {
+		Entry &e = it->second;
+		if (e.locked_until_ms > now_ms)
+			return AuthResult::Locked;
+		if (e.locked_until_ms != 0) { // lock just expired: fresh start
+			e.locked_until_ms = 0;
+			e.failures = 0;
 		}
 	}
 
-	Entry &e = entries_[ip];
-	if (e.locked_until_ms > now_ms)
-		return AuthResult::Locked;
-	if (e.locked_until_ms != 0) { // lock just expired: fresh start
-		e.locked_until_ms = 0;
+	if (supplied_code.empty())
+		return AuthResult::Denied;
+	if (!code_.empty() && constant_time_equals(supplied_code, code_)) {
+		if (it != entries_.end())
+			it->second.failures = 0;
+		return AuthResult::Ok;
+	}
+
+	// A wrong code.
+	if (it == entries_.end()) {
+		prune_locked(now_ms);
+		it = entries_.emplace(ip, Entry{}).first;
+	}
+	Entry &e = it->second;
+	e.last_activity_ms = now_ms;
+	if (++e.failures >= limits_.max_failures) {
+		e.locked_until_ms = now_ms + limits_.lock_ms; // this attempt is still a plain "denied"; the next ones are locked
 		e.failures = 0;
 	}
 
-	if (supplied_pin.empty())
-		return AuthResult::Denied;
-	if (!pin_.empty() && constant_time_equals(supplied_pin, pin_)) {
-		e.failures = 0;
-		return AuthResult::Ok;
-	}
-	if (++e.failures >= max_failures_) {
-		e.locked_until_ms = now_ms + lock_ms_; // the 5th wrong PIN is still a 401; the next calls get 429
-		e.failures = 0;
+	if (!is_loopback) {
+		global_failures_.push_back(now_ms);
+		while (!global_failures_.empty() && now_ms - global_failures_.front() > limits_.global_window_ms)
+			global_failures_.pop_front();
+		if (static_cast<int>(global_failures_.size()) > limits_.global_max_failures) {
+			global_locked_until_ms_ = now_ms + limits_.global_lock_ms;
+			global_failures_.clear();
+			global_event_ = true;
+		}
 	}
 	return AuthResult::Denied;
 }

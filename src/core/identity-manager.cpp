@@ -9,11 +9,12 @@ namespace himitsukao {
 
 std::string EnrollmentBoard::new_request()
 {
+	prune(std::chrono::minutes(5));
 	std::lock_guard<std::mutex> lock(mutex_);
 	const std::string id = "enroll-" + std::to_string(++counter_);
-	EnrollStatus st;
-	st.state = EnrollState::Pending;
-	requests_[id] = st;
+	Entry e;
+	e.status.state = EnrollState::Pending;
+	requests_[id] = e;
 	return id;
 }
 
@@ -21,17 +22,39 @@ void EnrollmentBoard::set(const std::string &request_id, EnrollState state, cons
 			  const std::string &error)
 {
 	std::lock_guard<std::mutex> lock(mutex_);
-	EnrollStatus &st = requests_[request_id];
-	st.state = state;
-	st.person_id = person_id;
-	st.error = error;
+	Entry &e = requests_[request_id];
+	e.status.state = state;
+	e.status.person_id = person_id;
+	e.status.error = error;
+	if (state == EnrollState::Done || state == EnrollState::Failed)
+		e.finished = std::chrono::steady_clock::now();
 }
 
 EnrollStatus EnrollmentBoard::get(const std::string &request_id) const
 {
 	std::lock_guard<std::mutex> lock(mutex_);
 	const auto it = requests_.find(request_id);
-	return it == requests_.end() ? EnrollStatus{} : it->second;
+	return it == requests_.end() ? EnrollStatus{} : it->second.status;
+}
+
+void EnrollmentBoard::prune(std::chrono::milliseconds max_age)
+{
+	std::lock_guard<std::mutex> lock(mutex_);
+	const auto now = std::chrono::steady_clock::now();
+	for (auto it = requests_.begin(); it != requests_.end();) {
+		const bool finished = it->second.status.state == EnrollState::Done ||
+				      it->second.status.state == EnrollState::Failed;
+		if (finished && now - it->second.finished >= max_age)
+			it = requests_.erase(it);
+		else
+			++it;
+	}
+}
+
+size_t EnrollmentBoard::size() const
+{
+	std::lock_guard<std::mutex> lock(mutex_);
+	return requests_.size();
 }
 
 // ---------------------------------------------------------------- IdentityManager
@@ -90,6 +113,7 @@ void IdentityManager::request_enroll(const std::string &request_id, int track_id
 	r.session = session;
 	std::lock_guard<std::mutex> lock(state_mutex_);
 	incoming_.push_back(std::move(r));
+	++pending_;
 }
 
 void IdentityManager::clear_person(const std::string &person_id)
@@ -235,7 +259,10 @@ void IdentityManager::process(FaceTracker &tracker, const std::vector<int> &ids,
 	// 1. Enrollments
 	active_.erase(std::remove_if(active_.begin(), active_.end(),
 				     [&](Request &r) {
-					     return handle_request(r, tracker, ids, now_ms, cfg, embed, thumb);
+					     const bool finished = handle_request(r, tracker, ids, now_ms, cfg, embed, thumb);
+					     if (finished)
+						     --pending_;
+					     return finished;
 				     }),
 		      active_.end());
 

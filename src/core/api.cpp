@@ -92,13 +92,20 @@ bool normalize_person_name(const std::string &raw, std::string &out)
 	return true;
 }
 
-ApiHandler::ApiHandler(HimitsukaoService &service, std::string index_html, std::string pin, Clock clock)
-	: service_(service), index_html_(std::move(index_html)), auth_(std::move(pin)), clock_(std::move(clock))
+ApiHandler::ApiHandler(HimitsukaoService &service, std::string index_html, std::string code, Clock clock, LogFn log)
+	: service_(service), index_html_(std::move(index_html)), auth_(std::move(code)), log_(std::move(log)), clock_(std::move(clock))
 {
 }
 
 ApiResponse ApiHandler::handle(const ApiRequest &request)
 {
+	// Trusted networks only, and only under an IP-literal / localhost Host (DNS rebinding): checked before anything
+	// else, the page included.
+	if (!is_allowed_client_ip(request.remote_ip))
+		return error_response(403, "forbidden");
+	if (!is_acceptable_host_header(request.host))
+		return error_response(421, "misdirected request");
+
 	if (request.path == "/" || request.path == "/index.html") {
 		if (request.method != "GET")
 			return error_response(405, "method not allowed");
@@ -112,16 +119,19 @@ ApiResponse ApiHandler::handle(const ApiRequest &request)
 		return error_response(404, "not found");
 
 	const int64_t now = clock_();
-	switch (auth_.check(request.remote_ip, request.pin, now)) {
+	const AuthResult auth = auth_.check(request.remote_ip, request.code, now, is_loopback_ip(request.remote_ip));
+	if (log_ && auth_.take_global_lock_event())
+		log_("too many failed authentication attempts: rejecting all remote clients for 10 minutes");
+	switch (auth) {
 	case AuthResult::Ok:
 		break;
 	case AuthResult::Locked: {
-		ApiResponse r = error_response(429, "too many wrong PINs, try again later");
+		ApiResponse r = error_response(429, "too many wrong access codes, try again later");
 		r.retry_after_s = static_cast<int>((auth_.retry_after_ms(request.remote_ip, now) + 999) / 1000);
 		return r;
 	}
 	case AuthResult::Denied:
-		return error_response(401, "PIN required");
+		return error_response(401, "access code required");
 	}
 
 	if (request.body.size() > kMaxBodyBytes)
@@ -190,8 +200,14 @@ ApiResponse ApiHandler::handle_api(const ApiRequest &req)
 				return error_response(400, "instance and track_id are required");
 			const bool session = body.contains("session") && body["session"].is_boolean() &&
 					     body["session"].get<bool>();
+			EnrollError enroll_error = EnrollError::None;
 			const std::string id = service_.enroll(body["instance"].get<std::string>(),
-							       body["track_id"].get<int>(), name, session);
+							       body["track_id"].get<int>(), name, session, &enroll_error);
+			if (enroll_error == EnrollError::Busy) {
+				ApiResponse busy = error_response(429, "too many enrollments in progress");
+				busy.retry_after_s = 2;
+				return busy;
+			}
 			if (id.empty())
 				return error_response(404, "unknown camera/filter instance");
 			return json_response(202, json{{"request_id", id}});

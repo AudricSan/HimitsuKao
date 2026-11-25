@@ -7,6 +7,8 @@
 #include <map>
 #include <random>
 #include <sstream>
+#include <thread>
+#include <chrono>
 #include <functional>
 #include <string>
 #include <vector>
@@ -24,6 +26,7 @@
 #include "himitsukao-service.h"
 #include "identity-manager.h"
 #include "http-server.h"
+#include "ip-filter.h"
 #include "image-utils.h"
 #include "runtime-state.h"
 #include "server-config.h"
@@ -182,6 +185,7 @@ static void test_detector_smoke()
 
 #include "test-identity.inc"
 #include "test-api.inc"
+#include "test-security.inc"
 
 int main()
 {
@@ -213,8 +217,8 @@ int main()
 		{"service_remove_remasks_and_enroll", test_service_remove_remasks_and_enroll},
 		{"thumbnail", test_thumbnail},
 		{"recognizer_smoke", test_recognizer_smoke},
-		{"constant_time_and_pin", test_constant_time_and_pin},
-		{"pin_lockout", test_pin_lockout},
+		{"constant_time_and_access_code", test_constant_time_and_access_code},
+		{"code_lockout", test_code_lockout},
 		{"runtime_state", test_runtime_state},
 		{"masks_by_mode_helpers", test_masks_by_mode_helpers},
 		{"person_name_validation", test_person_name_validation},
@@ -224,6 +228,15 @@ int main()
 		{"api_live_known_enroll_remove", test_api_live_known_enroll_remove},
 		{"server_config", test_server_config},
 		{"http_server_smoke", test_http_server_smoke},
+		{"ip_allowlist", test_ip_allowlist},
+		{"host_header", test_host_header},
+		{"api_ip_and_host_filtering", test_api_ip_and_host_filtering},
+		{"global_failure_budget", test_global_failure_budget},
+		{"auth_table_cap_keeps_partial_counts", test_auth_table_cap_keeps_partial_counts},
+		{"api_global_lock_logs_once", test_api_global_lock_logs_once},
+		{"enroll_queue_cap_and_board_prune", test_enroll_queue_cap_and_board_prune},
+		{"config_enabled_and_migration", test_config_enabled_and_migration},
+		{"http_host_and_limits", test_http_host_and_limits},
 	};
 	for (const auto &t : tests) {
 		const int before = g_failures;

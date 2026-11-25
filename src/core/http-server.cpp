@@ -21,9 +21,10 @@ bool HttpServer::start(const std::string &host, int port, std::string *error)
 
 	auto server = std::make_unique<httplib::Server>();
 	server->set_payload_max_length(kMaxBodyBytes);
-	server->set_read_timeout(5, 0);
-	server->set_write_timeout(5, 0);
-	server->set_keep_alive_max_count(20);
+	server->set_read_timeout(2, 0);
+	server->set_write_timeout(2, 0);
+	server->set_keep_alive_max_count(5);
+	server->set_keep_alive_timeout(2);
 	// httplib's defaults would let a second process bind the same port on Windows (SO_REUSEADDR) or on Linux
 	// (SO_REUSEPORT): use exclusive binding so that a busy port is detected and cannot be hijacked.
 	server->set_socket_options([](socket_t sock) {
@@ -34,7 +35,7 @@ bool HttpServer::start(const std::string &host, int port, std::string *error)
 		setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const void *>(&opt), sizeof(opt));
 #endif
 	});
-	server->new_task_queue = [] { return new httplib::ThreadPool(4); };
+	server->new_task_queue = [] { return new httplib::ThreadPool(4, 16); };
 
 	ApiHandler *api = &api_;
 	auto handler = [api](const httplib::Request &req, httplib::Response &res) {
@@ -42,8 +43,9 @@ bool HttpServer::start(const std::string &host, int port, std::string *error)
 		r.method = req.method;
 		r.path = req.path;
 		r.body = req.body;
-		r.pin = req.get_header_value("X-HimitsuKao-Pin");
+		r.code = req.get_header_value("X-HimitsuKao-Code");
 		r.remote_ip = req.remote_addr;
+		r.host = req.get_header_value("Host");
 		const ApiResponse out = api->handle(r);
 		res.status = out.status;
 		res.set_content(out.body, out.content_type);

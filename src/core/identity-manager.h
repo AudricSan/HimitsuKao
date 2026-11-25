@@ -1,5 +1,7 @@
 #pragma once
 
+#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -29,9 +31,17 @@ public:
 		 const std::string &error = {});
 	EnrollStatus get(const std::string &request_id) const;
 
+	// Forgets finished (done/failed) requests older than `max_age`. Called automatically (5 min) by new_request().
+	void prune(std::chrono::milliseconds max_age);
+	size_t size() const;
+
 private:
+	struct Entry {
+		EnrollStatus status;
+		std::chrono::steady_clock::time_point finished;
+	};
 	mutable std::mutex mutex_;
-	std::map<std::string, EnrollStatus> requests_;
+	std::map<std::string, Entry> requests_;
 	uint64_t counter_ = 0;
 };
 
@@ -59,6 +69,9 @@ public:
 	IdentityManager(FaceDatabase &db, EnrollmentBoard &board, IdentityConfig config = {}, LogFn log = nullptr);
 
 	void set_config(const IdentityConfig &config);
+
+	// Enrollments queued or in progress (callers cap this to avoid piling up requests).
+	size_t pending_requests() const { return pending_.load(); }
 
 	// Queues an enrollment (the request id comes from EnrollmentBoard::new_request()).
 	void request_enroll(const std::string &request_id, int track_id, const std::string &name, bool session);
@@ -103,6 +116,7 @@ private:
 	std::set<std::string> incoming_clears_;
 
 	std::vector<Request> active_; // worker thread only
+	std::atomic<size_t> pending_{0};
 
 	mutable std::mutex snapshot_mutex_;
 	std::vector<Track> snapshot_;

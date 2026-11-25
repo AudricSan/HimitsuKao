@@ -54,7 +54,10 @@ constexpr const char *kStyle = "style";
 constexpr const char *kStrength = "strength";
 constexpr const char *kServerPort = "server_port";
 constexpr const char *kServerInfo = "server_info";
-constexpr const char *kRegenPin = "regen_pin";
+constexpr const char *kRegenCode = "regen_code";
+constexpr const char *kShowCode = "show_code";
+constexpr const char *kMode = "mode";
+constexpr const char *kEnablePhone = "enable_phone";
 
 int64_t now_ms()
 {
@@ -104,6 +107,15 @@ struct himitsukao_filter {
 	std::string recognizer_model_path;
 	std::unique_ptr<himitsukao::IdentityManager> identity;
 	std::string service_key;
+
+	// What the properties dialog last showed for the global settings (see apply_settings).
+	struct {
+		std::string mode = "normal";
+		std::string style = "pixel";
+		int strength = 50;
+		int port = 8787;
+		bool enabled = false;
+	} seen;
 };
 
 void worker_main(himitsukao_filter *f)
@@ -278,8 +290,12 @@ const char *filter_get_name(void *)
 	return obs_module_text("HimitsuKao");
 }
 
-// Applies the per-filter settings. `push_global` is false while the filter is being created (the values saved in
-// a scene file must not override the global style), true for updates coming from the properties dialog.
+// Applies the per-filter settings. `push_global` is false while the filter is being created.
+//
+// Mode, style, strength, the phone page switch and the port are GLOBAL. A filter only pushes such a value when the
+// user changed it in this filter's dialog (the setting differs from what the dialog last showed, `ui_seen`).
+// Otherwise a stale value saved in a scene file, or shown by a dialog opened before the phone changed the mode,
+// could silently undo an emergency mode when any other property is edited.
 void apply_settings(himitsukao_filter *f, obs_data_t *settings, bool push_global)
 {
 	f->threshold = static_cast<float>(obs_data_get_double(settings, kThreshold));
@@ -295,19 +311,33 @@ void apply_settings(himitsukao_filter *f, obs_data_t *settings, bool push_global
 		f->identity->set_config(cfg);
 	}
 
-	if (!push_global)
-		return;
-	himitsukao::HimitsukaoService *service = plugin_service();
-	if (!service)
-		return;
-	himitsukao::Style style;
+	const std::string mode_s = obs_data_get_string(settings, kMode);
+	const std::string style_s = obs_data_get_string(settings, kStyle);
 	const int strength = static_cast<int>(obs_data_get_int(settings, kStrength));
-	if (himitsukao::parse_style(obs_data_get_string(settings, kStyle), style) && strength >= 1 &&
-	    (style != service->runtime().style() || strength != service->runtime().strength()))
-		service->set_style(style, strength);
 	const int port = static_cast<int>(obs_data_get_int(settings, kServerPort));
-	if (port >= 1024 && port <= 65535)
-		plugin_set_port(port);
+	const bool enabled = obs_data_get_bool(settings, kEnablePhone);
+
+	himitsukao::HimitsukaoService *service = push_global ? plugin_service() : nullptr;
+	if (service) {
+		himitsukao::Mode mode;
+		if (mode_s != f->seen.mode && himitsukao::parse_mode(mode_s, mode))
+			service->set_mode(mode);
+
+		himitsukao::Style style;
+		if ((style_s != f->seen.style || strength != f->seen.strength) && himitsukao::parse_style(style_s, style) &&
+		    strength >= 1)
+			service->set_style(style, strength);
+
+		if (port != f->seen.port && port >= 1024 && port <= 65535)
+			plugin_set_port(port);
+		if (enabled != f->seen.enabled)
+			plugin_set_server_enabled(enabled);
+	}
+	f->seen.mode = mode_s;
+	f->seen.style = style_s;
+	f->seen.strength = strength;
+	f->seen.port = port;
+	f->seen.enabled = enabled;
 }
 
 void filter_update(void *data, obs_data_t *settings)
@@ -323,47 +353,105 @@ void filter_get_defaults(obs_data_t *settings)
 	obs_data_set_default_int(settings, kAnalysisFps, 15);
 	obs_data_set_default_double(settings, kRecogThreshold, 0.363);
 	obs_data_set_default_int(settings, kRecheckMs, 1000);
+	obs_data_set_default_string(settings, kMode, "normal");
 	obs_data_set_default_string(settings, kStyle, "pixel");
 	obs_data_set_default_int(settings, kStrength, 50);
 	obs_data_set_default_int(settings, kServerPort, 8787);
+	obs_data_set_default_bool(settings, kEnablePhone, false);
 }
+
+// The access code is hidden by default; the "Show code" button reveals it (until the dialog is reopened).
+std::atomic<bool> g_show_code{false};
 
 std::string server_info_text()
 {
 	const PluginServerInfo info = plugin_server_info();
-	std::string text = std::string(obs_module_text("PhoneAddresses")) + ":";
-	if (info.addresses.empty())
-		text += " -";
+	if (!info.enabled)
+		return obs_module_text("PhoneDisabled");
+	std::string urls;
 	for (const auto &ip : info.addresses)
-		text += " http://" + ip + ":" + std::to_string(info.configured_port);
-	text += std::string("\n") + obs_module_text("PhonePin") + ": " + info.pin;
+		urls += " http://" + ip + ":" + std::to_string(info.configured_port) + "/";
+	std::string text = std::string(obs_module_text("PhoneAddresses")) + ":" + (urls.empty() ? " -" : urls);
+	const bool show = g_show_code.load();
+	text += std::string("\n") + obs_module_text("PhoneCode") + ": " +
+		(show ? info.code : std::string("\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2"
+						"\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2"));
+	if (show) {
+		for (const auto &ip : info.addresses)
+			text += std::string("\n") + obs_module_text("PhoneOneTap") + ": http://" + ip + ":" +
+				std::to_string(info.configured_port) + "/#code=" + info.code;
+	}
 	if (info.active_port == 0)
 		text += std::string("\n") + obs_module_text("PhoneNotRunning");
 	return text;
 }
 
-bool regenerate_pin_clicked(obs_properties_t *props, obs_property_t *, void *)
+void refresh_info(obs_properties_t *props)
 {
-	plugin_regenerate_pin();
 	if (obs_property_t *info = obs_properties_get(props, kServerInfo))
 		obs_property_set_description(info, server_info_text().c_str());
+	if (obs_property_t *button = obs_properties_get(props, kShowCode))
+		obs_property_set_description(button, obs_module_text(g_show_code.load() ? "HideCode" : "ShowCode"));
+}
+
+bool regenerate_code_clicked(obs_properties_t *props, obs_property_t *, void *)
+{
+	plugin_regenerate_code();
+	refresh_info(props);
+	return true;
+}
+
+bool show_code_clicked(obs_properties_t *props, obs_property_t *, void *)
+{
+	g_show_code = !g_show_code.load();
+	refresh_info(props);
+	return true;
+}
+
+// The switch takes effect immediately (the server starts or stops), without waiting for "OK".
+bool enable_phone_modified(void *data, obs_properties_t *props, obs_property_t *, obs_data_t *settings)
+{
+	auto *f = static_cast<himitsukao_filter *>(data);
+	const bool enabled = obs_data_get_bool(settings, kEnablePhone);
+	plugin_set_server_enabled(enabled);
+	f->seen.enabled = enabled;
+	refresh_info(props);
 	return true;
 }
 
 obs_properties_t *filter_get_properties(void *data)
 {
 	auto *f = static_cast<himitsukao_filter *>(data);
+	g_show_code = false;
 
-	// The style and the port are global: show the current values, not whatever this filter saved earlier.
+	// The mode, style, port and phone page switch are global: show the current values, not whatever this filter
+	// saved earlier, and remember them so that only a real edit is pushed back.
 	if (himitsukao::HimitsukaoService *service = plugin_service()) {
+		const PluginServerInfo info = plugin_server_info();
 		obs_data_t *settings = obs_source_get_settings(f->source);
+		obs_data_set_string(settings, kMode, himitsukao::mode_name(service->runtime().mode()));
 		obs_data_set_string(settings, kStyle, himitsukao::style_name(service->runtime().style()));
 		obs_data_set_int(settings, kStrength, service->runtime().strength());
-		obs_data_set_int(settings, kServerPort, plugin_server_info().configured_port);
+		obs_data_set_int(settings, kServerPort, info.configured_port);
+		obs_data_set_bool(settings, kEnablePhone, info.enabled);
 		obs_data_release(settings);
+		f->seen.mode = himitsukao::mode_name(service->runtime().mode());
+		f->seen.style = himitsukao::style_name(service->runtime().style());
+		f->seen.strength = service->runtime().strength();
+		f->seen.port = info.configured_port;
+		f->seen.enabled = info.enabled;
 	}
 
 	obs_properties_t *props = obs_properties_create();
+
+	// Fail-safe: change the masking mode from OBS itself, without the phone.
+	obs_property_t *mode = obs_properties_add_list(props, kMode, obs_module_text("Mode"), OBS_COMBO_TYPE_LIST,
+						       OBS_COMBO_FORMAT_STRING);
+	obs_property_list_add_string(mode, obs_module_text("ModeNormal"), "normal");
+	obs_property_list_add_string(mode, obs_module_text("ModeFacesAll"), "faces_all");
+	obs_property_list_add_string(mode, obs_module_text("ModeFrameAll"), "frame_all");
+	obs_property_list_add_string(mode, obs_module_text("ModeOff"), "off");
+
 	obs_properties_add_float_slider(props, kThreshold, obs_module_text("DetectionThreshold"), 0.2, 0.9, 0.05);
 	obs_properties_add_int_slider(props, kHoldMs, obs_module_text("MaskHoldMs"), 0, 1000, 10);
 	obs_properties_add_float_slider(props, kPadding, obs_module_text("MaskPadding"), 1.0, 2.0, 0.05);
@@ -378,10 +466,13 @@ obs_properties_t *filter_get_properties(void *data)
 	obs_property_list_add_string(style, obs_module_text("StyleSolid"), "solid");
 	obs_properties_add_int_slider(props, kStrength, obs_module_text("MaskStrength"), 1, 100, 1);
 
+	obs_property_t *enable = obs_properties_add_bool(props, kEnablePhone, obs_module_text("EnablePhonePage"));
+	obs_property_set_modified_callback2(enable, enable_phone_modified, f);
 	obs_properties_add_int(props, kServerPort, obs_module_text("PhonePort"), 1024, 65535, 1);
 	obs_property_t *info = obs_properties_add_text(props, kServerInfo, server_info_text().c_str(), OBS_TEXT_INFO);
 	obs_property_text_set_info_type(info, OBS_TEXT_INFO_NORMAL);
-	obs_properties_add_button(props, kRegenPin, obs_module_text("RegeneratePin"), regenerate_pin_clicked);
+	obs_properties_add_button(props, kShowCode, obs_module_text("ShowCode"), show_code_clicked);
+	obs_properties_add_button(props, kRegenCode, obs_module_text("RegenerateCode"), regenerate_code_clicked);
 	return props;
 }
 

@@ -80,7 +80,7 @@ details[open] summary::after { content: "\25B4"; }
 .pinbox { width: 100%; max-width: 360px; text-align: center; }
 .pinbox h1 { margin: 0 0 6px; font-size: 26px; }
 .pinbox p { color: var(--muted); margin: 0 0 18px; }
-.pinbox input { text-align: center; font-size: 28px; letter-spacing: .3em; margin-bottom: 12px; }
+.pinbox input { text-align: center; font-size: 22px; letter-spacing: .12em; margin-bottom: 12px; }
 .pinbox button { width: 100%; }
 #pinErr { color: #ff8b8f; min-height: 24px; margin-top: 10px; }
 </style>
@@ -91,7 +91,7 @@ details[open] summary::after { content: "\25B4"; }
   <div class="pinbox">
     <h1>HimitsuKao</h1>
     <p id="pinHelp"></p>
-    <input id="pinInput" type="password" inputmode="numeric" autocomplete="off" maxlength="12">
+    <input id="pinInput" type="password" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" maxlength="64">
     <button id="pinGo" class="primary"></button>
     <div id="pinErr"></div>
   </div>
@@ -134,8 +134,8 @@ details[open] summary::after { content: "\25B4"; }
   document.documentElement.lang = lang;
   var TXT = {
     fr: {
-      pinHelp: "Entrez le code PIN affiché dans OBS (propriétés du filtre).", pinGo: "Entrer", pinBad: "Code PIN incorrect.",
-      pinLocked: "Trop d'essais. Réessayez dans une minute.", offline: "Connexion perdue, nouvelle tentative…",
+      pinHelp: "Code d'accès", pinGo: "Entrer", pinBad: "Code d'accès incorrect.",
+      pinLocked: "Trop d'essais. Réessayez plus tard.", offline: "Connexion perdue, nouvelle tentative…",
       normal: "Normal", normalSub: "flouter les inconnus", faces_all: "Tout flouter", faces_allSub: "tous les visages",
       frame_all: "Tout flouter", frame_allSub: "toute l'image", off: "Désactivé", offSub: "aucun flou", confirm: "Confirmer ?",
       live: "En direct", noFaces: "Aucun visage en ce moment.", blurred: "flouté", tapToAdd: "Touchez un visage inconnu pour l'ajouter.",
@@ -146,8 +146,8 @@ details[open] summary::after { content: "\25B4"; }
       removed: "Supprimé, de nouveau flouté.", renamed: "Renommé.", err: "Erreur", gone: "Visage parti"
     },
     en: {
-      pinHelp: "Enter the PIN shown in OBS (filter properties).", pinGo: "Enter", pinBad: "Wrong PIN.",
-      pinLocked: "Too many attempts. Try again in a minute.", offline: "Connection lost, retrying…",
+      pinHelp: "Access code", pinGo: "Enter", pinBad: "Wrong access code.",
+      pinLocked: "Too many attempts. Try again later.", offline: "Connection lost, retrying…",
       normal: "Normal", normalSub: "blur unknown faces", faces_all: "Blur all", faces_allSub: "every face",
       frame_all: "Blur all", frame_allSub: "whole image", off: "Off", offSub: "no blur", confirm: "Confirm?",
       live: "Live", noFaces: "No face right now.", blurred: "blurred", tapToAdd: "Tap an unknown face to add it.",
@@ -167,9 +167,18 @@ details[open] summary::after { content: "\25B4"; }
     return e;
   }
 
-  var PIN_KEY = "hk_pin";
+  var CODE_KEY = "hk_code";
   var pin = "";
-  try { pin = localStorage.getItem(PIN_KEY) || ""; } catch (e) { pin = ""; }
+  try { pin = localStorage.getItem(CODE_KEY) || ""; } catch (e) { pin = ""; }
+  // One-tap address: http://ip:port/#code=xxxx stores the code, then removes it from the URL (history).
+  (function () {
+    var m = /(?:^#|&)code=([^&]+)/.exec(location.hash || "");
+    if (!m) return;
+    var c = "";
+    try { c = decodeURIComponent(m[1]).trim(); } catch (e) { c = ""; }
+    if (c) { pin = c; try { localStorage.setItem(CODE_KEY, c); } catch (e) {} }
+    try { history.replaceState(null, "", location.pathname + location.search); } catch (e) { location.hash = ""; }
+  })();
   var online = true;
   var state = { mode: "normal", style: "pixel", strength: 50 };
   var lastKnownJson = "", lastLiveJson = "";
@@ -180,7 +189,7 @@ details[open] summary::after { content: "\25B4"; }
   function api(method, path, body) {
     var ctl = typeof AbortController === "function" ? new AbortController() : null;
     var timer = ctl ? setTimeout(function () { ctl.abort(); }, 4000) : null;
-    var opts = { method: method, headers: { "X-HimitsuKao-Pin": pin }, cache: "no-store" };
+    var opts = { method: method, headers: { "X-HimitsuKao-Code": pin }, cache: "no-store" };
     if (body !== undefined) { opts.body = JSON.stringify(body); opts.headers["Content-Type"] = "application/json"; }
     if (ctl) opts.signal = ctl.signal;
     return fetch(path, opts).then(function (r) {
@@ -221,7 +230,7 @@ details[open] summary::after { content: "\25B4"; }
     var old = pin;
     pin = v;
     api("GET", "/api/state").then(function (s) {
-      try { localStorage.setItem(PIN_KEY, v); } catch (e) {}
+      try { localStorage.setItem(CODE_KEY, v); } catch (e) {}
       $("pinScreen").classList.add("hidden");
       applyState(s);
       refreshKnown(true);

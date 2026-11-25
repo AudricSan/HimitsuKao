@@ -11,11 +11,22 @@ You manage the list from your phone during the live: tap a face that is on scree
 - Face detection (YuNet) and face recognition (SFace) running on the CPU through OpenCV, with no GPU or CUDA required.
 - Face tracking, so a recognised person stays visible while they move.
 - Mask styles: pixelate, gaussian blur or solid colour, with adjustable strength.
-- A small web page served by the plugin for your phone (meant to be reached over a private network such as Tailscale, protected by a PIN):
+- A small web page served by the plugin for your phone (meant to be reached over a private network such as Tailscale, protected by an access code):
   - thumbnails of the faces on screen, tap one to add that person;
   - list of known people, remove one in a tap;
   - "this live only" people, forgotten when OBS closes;
   - emergency "blur everything" and "blurring off" switches.
+
+## Phone page and security
+
+The phone page is **off by default**: nothing listens on the network until you tick *Enable the phone page* in the filter properties. You can switch it off again at any time, without restarting OBS.
+
+- **Trusted networks only.** The server answers only clients on loopback, private networks (10/8, 172.16/12, 192.168/16), Tailscale/CGNAT (100.64/10) and IPv6 unique-local addresses. Every other address gets a 403, and requests whose `Host` is not an IP address or `localhost` are refused (DNS rebinding protection). Tailscale (or a LAN you trust) is the recommended way to reach it from your phone.
+- **Plain HTTP, no TLS.** The access code travels in clear text on that network. Do not use the page on an untrusted Wi-Fi.
+- **Never expose it to the internet:** no router port forwarding, no Tailscale Funnel, no public reverse proxy.
+- **Access code.** A random 10-character code is generated on first start and shown (hidden by default, with a *Show code* button) in the filter properties, together with the address to type on the phone. The one-tap address `http://<ip>:<port>/#code=<code>` stores the code in the phone browser and removes it from the URL. Regenerate it from the same properties page if it leaks. Wrong codes are rate limited per address (5 tries, then 60 s) and globally (more than 30 failures in 10 minutes block every remote client for 10 minutes).
+- **Recovery without the phone.** The masking mode (normal, blur all faces, blur the whole image, off) can also be changed from the filter properties in OBS.
+- **Files.** The settings (`server.json`: port, access code, style) and the known people (`known.json`, embeddings and thumbnails, "this live only" people excluded) live in OBS's per-user plugin config folder; on Linux and macOS they are created readable by you only.
 
 ## Building
 

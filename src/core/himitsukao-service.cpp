@@ -40,12 +40,22 @@ std::vector<LiveFace> HimitsukaoService::live_faces(int64_t now_ms, int64_t max_
 }
 
 std::string HimitsukaoService::enroll(const std::string &instance_key, int track_id, const std::string &name,
-				      bool session)
+				      bool session, EnrollError *error)
 {
+	if (error)
+		*error = EnrollError::None;
 	std::lock_guard<std::mutex> lock(mutex_);
 	const auto it = instances_.find(instance_key);
-	if (it == instances_.end())
+	if (it == instances_.end()) {
+		if (error)
+			*error = EnrollError::UnknownInstance;
 		return {};
+	}
+	if (it->second.manager->pending_requests() >= kMaxPendingEnrollments) {
+		if (error)
+			*error = EnrollError::Busy;
+		return {};
+	}
 	const std::string request_id = board_.new_request();
 	it->second.manager->request_enroll(request_id, track_id, name, session);
 	return request_id;

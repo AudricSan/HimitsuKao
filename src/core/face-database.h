@@ -34,6 +34,7 @@ struct Match {
 struct LoadResult {
 	bool ok = true;       // false: the file was unreadable/corrupt (database is empty, backup kept)
 	bool existed = false; // a file was present
+	bool needs_save = false; // the loader repaired/migrated something: the caller should save()
 	std::string message;  // human readable, for the log
 };
 

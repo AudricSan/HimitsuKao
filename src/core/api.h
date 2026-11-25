@@ -5,6 +5,7 @@
 #include <string>
 
 #include "auth.h"
+#include "ip-filter.h"
 #include "himitsukao-service.h"
 
 namespace himitsukao {
@@ -13,7 +14,8 @@ struct ApiRequest {
 	std::string method; // GET, POST, DELETE, PATCH
 	std::string path;   // without query string
 	std::string body;
-	std::string pin;       // value of the X-HimitsuKao-Pin header ("" if absent)
+	std::string code;      // value of the X-HimitsuKao-Code header ("" if absent)
+	std::string host;      // value of the Host header
 	std::string remote_ip; // for the lockout
 };
 
@@ -33,20 +35,22 @@ constexpr int64_t kLiveWindowMs = 1500;
 class ApiHandler {
 public:
 	using Clock = std::function<int64_t()>; // same time base as the tracker timestamps (milliseconds)
+	using LogFn = std::function<void(const std::string &)>; // warnings (never contains the access code)
 
-	ApiHandler(HimitsukaoService &service, std::string index_html, std::string pin, Clock clock);
+	ApiHandler(HimitsukaoService &service, std::string index_html, std::string code, Clock clock, LogFn log = nullptr);
 
 	ApiResponse handle(const ApiRequest &request);
 
-	void set_pin(const std::string &pin) { auth_.set_pin(pin); }
-	PinAuthenticator &auth() { return auth_; }
+	void set_code(const std::string &code) { auth_.set_code(code); }
+	CodeAuthenticator &auth() { return auth_; }
 
 private:
 	ApiResponse handle_api(const ApiRequest &request);
 
 	HimitsukaoService &service_;
 	std::string index_html_;
-	PinAuthenticator auth_;
+	CodeAuthenticator auth_;
+	LogFn log_;
 	Clock clock_;
 };
 
