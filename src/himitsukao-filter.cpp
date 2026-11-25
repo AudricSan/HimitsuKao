@@ -66,6 +66,23 @@ int64_t now_ms()
 	return static_cast<int64_t>(os_gettime_ns() / 1000000ULL);
 }
 
+// Size of the picture this filter receives. A filter further down the chain whose plugin is missing reports
+// 0x0 (OBS has no data for it) although OBS passes the picture through it, so fall back to the parent source.
+std::pair<uint32_t, uint32_t> chain_size(obs_source_t *filter)
+{
+	obs_source_t *target = obs_filter_get_target(filter);
+	if (target) {
+		const uint32_t w = obs_source_get_base_width(target);
+		const uint32_t h = obs_source_get_base_height(target);
+		if (w && h)
+			return {w, h};
+	}
+	obs_source_t *parent = obs_filter_get_parent(filter);
+	if (!parent)
+		return {0, 0};
+	return {obs_source_get_base_width(parent), obs_source_get_base_height(parent)};
+}
+
 struct stage_slot {
 	gs_stagesurf_t *surf = nullptr;
 	bool pending = false;
@@ -751,8 +768,7 @@ void filter_video_render(void *data, gs_effect_t *)
 		obs_source_skip_video_filter(f->source);
 		return;
 	}
-	const uint32_t w = obs_source_get_base_width(target);
-	const uint32_t h = obs_source_get_base_height(target);
+	const auto [w, h] = chain_size(f->source);
 	if (!w || !h) {
 		obs_source_skip_video_filter(f->source);
 		return;
@@ -767,19 +783,15 @@ void filter_video_render(void *data, gs_effect_t *)
 		return;
 	}
 	{
+		// Render the rest of the filter chain into our texture the way OBS passes a filter through: it copes with
+		// async media sources and with missing-plugin or disabled filters further down the chain.
 		vec4 clear;
 		vec4_zero(&clear);
-		gs_blend_state_push();
-		gs_blend_function_separate(GS_BLEND_SRCALPHA, GS_BLEND_INVSRCALPHA, GS_BLEND_ONE, GS_BLEND_INVSRCALPHA);
 		gs_clear(GS_CLEAR_COLOR, &clear, 0.0f, 0);
 		gs_ortho(0.0f, static_cast<float>(w), 0.0f, static_cast<float>(h), -100.0f, 100.0f);
-		const uint32_t parent_flags = obs_source_get_output_flags(parent);
-		const bool custom_draw = (parent_flags & OBS_SOURCE_CUSTOM_DRAW) != 0;
-		const bool async = (parent_flags & OBS_SOURCE_ASYNC) != 0;
-		if (target == parent && !custom_draw && !async)
-			obs_source_default_render(target);
-		else
-			obs_source_video_render(target);
+		gs_blend_state_push();
+		gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
+		obs_source_skip_video_filter(f->source);
 		gs_blend_state_pop();
 		gs_texrender_end(f->full_render);
 	}
@@ -845,16 +857,12 @@ void filter_video_render(void *data, gs_effect_t *)
 
 uint32_t filter_get_width(void *data)
 {
-	auto *f = static_cast<himitsukao_filter *>(data);
-	obs_source_t *target = obs_filter_get_target(f->source);
-	return target ? obs_source_get_base_width(target) : 0;
+	return chain_size(static_cast<himitsukao_filter *>(data)->source).first;
 }
 
 uint32_t filter_get_height(void *data)
 {
-	auto *f = static_cast<himitsukao_filter *>(data);
-	obs_source_t *target = obs_filter_get_target(f->source);
-	return target ? obs_source_get_base_height(target) : 0;
+	return chain_size(static_cast<himitsukao_filter *>(data)->source).second;
 }
 
 } // namespace
