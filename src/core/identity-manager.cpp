@@ -111,10 +111,10 @@ std::vector<Track> IdentityManager::snapshot() const
 	return snapshot_;
 }
 
-std::vector<Rect> IdentityManager::masks(int64_t now_ms, int64_t hold_ms, float padding) const
+std::vector<Rect> IdentityManager::masks(int64_t now_ms, int64_t hold_ms, float padding, bool include_known) const
 {
 	std::lock_guard<std::mutex> lock(snapshot_mutex_);
-	return masks_from_tracks(snapshot_, now_ms, hold_ms, padding);
+	return masks_from_tracks(snapshot_, now_ms, hold_ms, padding, include_known);
 }
 
 void IdentityManager::publish(FaceTracker &tracker)

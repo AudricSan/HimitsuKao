@@ -13,12 +13,20 @@
 
 #include <opencv2/core.hpp>
 
+#include <httplib.h>
+#include <nlohmann/json.hpp>
+
+#include "api.h"
+#include "auth.h"
 #include "face-database.h"
 #include "face-detector.h"
 #include "face-recognizer.h"
 #include "himitsukao-service.h"
 #include "identity-manager.h"
+#include "http-server.h"
 #include "image-utils.h"
+#include "runtime-state.h"
+#include "server-config.h"
 #include "face-tracker.h"
 
 using namespace himitsukao;
@@ -33,7 +41,7 @@ static int g_failures = 0;
 		}                                                                              \
 	} while (0)
 
-static bool near(float a, float b, float eps = 1e-4f)
+static bool approx(float a, float b, float eps = 1e-4f)
 {
 	return std::fabs(a - b) < eps;
 }
@@ -41,10 +49,10 @@ static bool near(float a, float b, float eps = 1e-4f)
 static void test_iou()
 {
 	Rect a{0.1f, 0.1f, 0.2f, 0.2f};
-	CHECK(near(rect_iou(a, a), 1.f));
-	CHECK(near(rect_iou(a, Rect{0.5f, 0.5f, 0.1f, 0.1f}), 0.f));
+	CHECK(approx(rect_iou(a, a), 1.f));
+	CHECK(approx(rect_iou(a, Rect{0.5f, 0.5f, 0.1f, 0.1f}), 0.f));
 	// Half overlap: inter = 0.1*0.2, union = 2*0.04 - 0.02
-	CHECK(near(rect_iou(a, Rect{0.2f, 0.1f, 0.2f, 0.2f}), 0.02f / 0.06f));
+	CHECK(approx(rect_iou(a, Rect{0.2f, 0.1f, 0.2f, 0.2f}), 0.02f / 0.06f));
 }
 
 static void test_new_track_and_id_stability()
@@ -92,7 +100,7 @@ static void test_smoothing()
 	FaceTracker tr(cfg);
 	tr.update({Rect{0.2f, 0.2f, 0.2f, 0.2f}}, 0);
 	tr.update({Rect{0.24f, 0.2f, 0.2f, 0.2f}}, 66);
-	CHECK(near(tr.tracks()[0].rect.x, 0.22f));
+	CHECK(approx(tr.tracks()[0].rect.x, 0.22f));
 }
 
 static void test_hold()
@@ -134,15 +142,15 @@ static void test_expiry()
 static void test_padding()
 {
 	Rect r = pad_rect(Rect{0.4f, 0.4f, 0.2f, 0.2f}, 1.5f);
-	CHECK(near(r.x, 0.35f) && near(r.y, 0.35f) && near(r.w, 0.3f) && near(r.h, 0.3f));
+	CHECK(approx(r.x, 0.35f) && approx(r.y, 0.35f) && approx(r.w, 0.3f) && approx(r.h, 0.3f));
 
 	// Clamped to the image bounds.
 	Rect c = pad_rect(Rect{0.0f, 0.9f, 0.2f, 0.1f}, 2.0f);
 	CHECK(c.x >= 0.f && c.y >= 0.f);
 	CHECK(c.x + c.w <= 1.f + 1e-6f && c.y + c.h <= 1.f + 1e-6f);
-	CHECK(near(c.x, 0.f));
-	CHECK(near(c.y + c.h, 1.f));
-	CHECK(near(c.w, 0.3f)); // from -0.1 .. 0.3 clamped to 0 .. 0.3
+	CHECK(approx(c.x, 0.f));
+	CHECK(approx(c.y + c.h, 1.f));
+	CHECK(approx(c.w, 0.3f)); // from -0.1 .. 0.3 clamped to 0 .. 0.3
 
 	FaceTracker tr;
 	tr.update({Rect{0.9f, 0.9f, 0.1f, 0.1f}}, 0);
@@ -173,6 +181,7 @@ static void test_detector_smoke()
 }
 
 #include "test-identity.inc"
+#include "test-api.inc"
 
 int main()
 {
@@ -204,6 +213,17 @@ int main()
 		{"service_remove_remasks_and_enroll", test_service_remove_remasks_and_enroll},
 		{"thumbnail", test_thumbnail},
 		{"recognizer_smoke", test_recognizer_smoke},
+		{"constant_time_and_pin", test_constant_time_and_pin},
+		{"pin_lockout", test_pin_lockout},
+		{"runtime_state", test_runtime_state},
+		{"masks_by_mode_helpers", test_masks_by_mode_helpers},
+		{"person_name_validation", test_person_name_validation},
+		{"api_auth_and_static", test_api_auth_and_static},
+		{"api_state_mode_style", test_api_state_mode_style},
+		{"api_body_limit", test_api_body_limit},
+		{"api_live_known_enroll_remove", test_api_live_known_enroll_remove},
+		{"server_config", test_server_config},
+		{"http_server_smoke", test_http_server_smoke},
 	};
 	for (const auto &t : tests) {
 		const int before = g_failures;

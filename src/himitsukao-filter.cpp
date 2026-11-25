@@ -40,16 +40,21 @@ namespace {
 constexpr const char *kModelFile = "models/face_detection_yunet_2023mar.onnx";
 constexpr const char *kRecognizerModelFile = "models/face_recognition_sface_2021dec.onnx";
 constexpr const char *kEffectFile = "effects/pixelate.effect";
+constexpr const char *kGaussianEffectFile = "effects/gaussian.effect";
 constexpr uint32_t kAnalysisWidth = 640;
 
 // Setting keys
 constexpr const char *kThreshold = "threshold";
 constexpr const char *kHoldMs = "hold_ms";
 constexpr const char *kPadding = "padding";
-constexpr const char *kBlockSize = "block_size";
 constexpr const char *kAnalysisFps = "analysis_fps";
 constexpr const char *kRecogThreshold = "recognition_threshold";
 constexpr const char *kRecheckMs = "recheck_ms";
+constexpr const char *kStyle = "style";
+constexpr const char *kStrength = "strength";
+constexpr const char *kServerPort = "server_port";
+constexpr const char *kServerInfo = "server_info";
+constexpr const char *kRegenPin = "regen_pin";
 
 int64_t now_ms()
 {
@@ -69,13 +74,14 @@ struct himitsukao_filter {
 	std::atomic<float> threshold{0.5f};
 	std::atomic<int> hold_ms{300};
 	std::atomic<float> padding{1.3f};
-	std::atomic<int> block_size{16};
 	std::atomic<int> analysis_fps{15};
 	std::atomic<float> recog_threshold{0.363f};
 	std::atomic<int> recheck_ms{1000};
 
 	// Graphics-thread only.
 	gs_effect_t *pixelate_effect = nullptr;
+	gs_effect_t *gaussian_effect = nullptr;
+	gs_texrender_t *blur_render = nullptr; // horizontal gaussian pass
 	gs_texrender_t *full_render = nullptr;
 	gs_texrender_t *small_render = nullptr;
 	stage_slot stages[2];
@@ -249,21 +255,22 @@ void queue_analysis(himitsukao_filter *f, gs_texture_t *full_tex, uint32_t w, ui
 	f->next_stage ^= 1;
 }
 
-void load_pixelate_effect(himitsukao_filter *f)
+gs_effect_t *load_effect(const char *relative_path)
 {
-	char *path = obs_module_file(kEffectFile);
+	char *path = obs_module_file(relative_path);
 	if (!path) {
-		obs_log(LOG_ERROR, "pixelate effect file not found (%s)", kEffectFile);
-		return;
+		obs_log(LOG_ERROR, "effect file not found (%s)", relative_path);
+		return nullptr;
 	}
 	char *error = nullptr;
 	obs_enter_graphics();
-	f->pixelate_effect = gs_effect_create_from_file(path, &error);
+	gs_effect_t *effect = gs_effect_create_from_file(path, &error);
 	obs_leave_graphics();
-	if (!f->pixelate_effect)
-		obs_log(LOG_ERROR, "cannot load the pixelate effect: %s", error ? error : "unknown error");
+	if (!effect)
+		obs_log(LOG_ERROR, "cannot load the effect %s: %s", relative_path, error ? error : "unknown error");
 	bfree(error);
 	bfree(path);
+	return effect;
 }
 
 const char *filter_get_name(void *)
@@ -271,13 +278,13 @@ const char *filter_get_name(void *)
 	return obs_module_text("HimitsuKao");
 }
 
-void filter_update(void *data, obs_data_t *settings)
+// Applies the per-filter settings. `push_global` is false while the filter is being created (the values saved in
+// a scene file must not override the global style), true for updates coming from the properties dialog.
+void apply_settings(himitsukao_filter *f, obs_data_t *settings, bool push_global)
 {
-	auto *f = static_cast<himitsukao_filter *>(data);
 	f->threshold = static_cast<float>(obs_data_get_double(settings, kThreshold));
 	f->hold_ms = static_cast<int>(obs_data_get_int(settings, kHoldMs));
 	f->padding = static_cast<float>(obs_data_get_double(settings, kPadding));
-	f->block_size = std::max(1, static_cast<int>(obs_data_get_int(settings, kBlockSize)));
 	f->analysis_fps = std::max(1, static_cast<int>(obs_data_get_int(settings, kAnalysisFps)));
 	f->recog_threshold = static_cast<float>(obs_data_get_double(settings, kRecogThreshold));
 	f->recheck_ms = std::max(100, static_cast<int>(obs_data_get_int(settings, kRecheckMs)));
@@ -287,6 +294,25 @@ void filter_update(void *data, obs_data_t *settings)
 		cfg.recheck_ms = f->recheck_ms;
 		f->identity->set_config(cfg);
 	}
+
+	if (!push_global)
+		return;
+	himitsukao::HimitsukaoService *service = plugin_service();
+	if (!service)
+		return;
+	himitsukao::Style style;
+	const int strength = static_cast<int>(obs_data_get_int(settings, kStrength));
+	if (himitsukao::parse_style(obs_data_get_string(settings, kStyle), style) && strength >= 1 &&
+	    (style != service->runtime().style() || strength != service->runtime().strength()))
+		service->set_style(style, strength);
+	const int port = static_cast<int>(obs_data_get_int(settings, kServerPort));
+	if (port >= 1024 && port <= 65535)
+		plugin_set_port(port);
+}
+
+void filter_update(void *data, obs_data_t *settings)
+{
+	apply_settings(static_cast<himitsukao_filter *>(data), settings, true);
 }
 
 void filter_get_defaults(obs_data_t *settings)
@@ -294,22 +320,68 @@ void filter_get_defaults(obs_data_t *settings)
 	obs_data_set_default_double(settings, kThreshold, 0.5);
 	obs_data_set_default_int(settings, kHoldMs, 300);
 	obs_data_set_default_double(settings, kPadding, 1.3);
-	obs_data_set_default_int(settings, kBlockSize, 16);
 	obs_data_set_default_int(settings, kAnalysisFps, 15);
 	obs_data_set_default_double(settings, kRecogThreshold, 0.363);
 	obs_data_set_default_int(settings, kRecheckMs, 1000);
+	obs_data_set_default_string(settings, kStyle, "pixel");
+	obs_data_set_default_int(settings, kStrength, 50);
+	obs_data_set_default_int(settings, kServerPort, 8787);
 }
 
-obs_properties_t *filter_get_properties(void *)
+std::string server_info_text()
 {
+	const PluginServerInfo info = plugin_server_info();
+	std::string text = std::string(obs_module_text("PhoneAddresses")) + ":";
+	if (info.addresses.empty())
+		text += " -";
+	for (const auto &ip : info.addresses)
+		text += " http://" + ip + ":" + std::to_string(info.configured_port);
+	text += std::string("\n") + obs_module_text("PhonePin") + ": " + info.pin;
+	if (info.active_port == 0)
+		text += std::string("\n") + obs_module_text("PhoneNotRunning");
+	return text;
+}
+
+bool regenerate_pin_clicked(obs_properties_t *props, obs_property_t *, void *)
+{
+	plugin_regenerate_pin();
+	if (obs_property_t *info = obs_properties_get(props, kServerInfo))
+		obs_property_set_description(info, server_info_text().c_str());
+	return true;
+}
+
+obs_properties_t *filter_get_properties(void *data)
+{
+	auto *f = static_cast<himitsukao_filter *>(data);
+
+	// The style and the port are global: show the current values, not whatever this filter saved earlier.
+	if (himitsukao::HimitsukaoService *service = plugin_service()) {
+		obs_data_t *settings = obs_source_get_settings(f->source);
+		obs_data_set_string(settings, kStyle, himitsukao::style_name(service->runtime().style()));
+		obs_data_set_int(settings, kStrength, service->runtime().strength());
+		obs_data_set_int(settings, kServerPort, plugin_server_info().configured_port);
+		obs_data_release(settings);
+	}
+
 	obs_properties_t *props = obs_properties_create();
 	obs_properties_add_float_slider(props, kThreshold, obs_module_text("DetectionThreshold"), 0.2, 0.9, 0.05);
 	obs_properties_add_int_slider(props, kHoldMs, obs_module_text("MaskHoldMs"), 0, 1000, 10);
 	obs_properties_add_float_slider(props, kPadding, obs_module_text("MaskPadding"), 1.0, 2.0, 0.05);
-	obs_properties_add_int_slider(props, kBlockSize, obs_module_text("PixelBlockSize"), 4, 64, 1);
 	obs_properties_add_int_slider(props, kAnalysisFps, obs_module_text("AnalysisFps"), 5, 30, 1);
 	obs_properties_add_float_slider(props, kRecogThreshold, obs_module_text("RecognitionThreshold"), 0.2, 0.6, 0.01);
 	obs_properties_add_int_slider(props, kRecheckMs, obs_module_text("RecheckIntervalMs"), 200, 3000, 50);
+
+	obs_property_t *style = obs_properties_add_list(props, kStyle, obs_module_text("MaskStyle"),
+							OBS_COMBO_TYPE_LIST, OBS_COMBO_FORMAT_STRING);
+	obs_property_list_add_string(style, obs_module_text("StylePixel"), "pixel");
+	obs_property_list_add_string(style, obs_module_text("StyleGaussian"), "gaussian");
+	obs_property_list_add_string(style, obs_module_text("StyleSolid"), "solid");
+	obs_properties_add_int_slider(props, kStrength, obs_module_text("MaskStrength"), 1, 100, 1);
+
+	obs_properties_add_int(props, kServerPort, obs_module_text("PhonePort"), 1024, 65535, 1);
+	obs_property_t *info = obs_properties_add_text(props, kServerInfo, server_info_text().c_str(), OBS_TEXT_INFO);
+	obs_property_text_set_info_type(info, OBS_TEXT_INFO_NORMAL);
+	obs_properties_add_button(props, kRegenPin, obs_module_text("RegeneratePin"), regenerate_pin_clicked);
 	return props;
 }
 
@@ -317,9 +389,10 @@ void *filter_create(obs_data_t *settings, obs_source_t *source)
 {
 	auto *f = new himitsukao_filter();
 	f->source = source;
-	filter_update(f, settings);
+	apply_settings(f, settings, false);
 
-	load_pixelate_effect(f);
+	f->pixelate_effect = load_effect(kEffectFile);
+	f->gaussian_effect = load_effect(kGaussianEffectFile);
 
 	himitsukao::HimitsukaoService *service = plugin_service();
 	char *model = obs_module_file(kModelFile);
@@ -368,37 +441,151 @@ void filter_destroy(void *data)
 		gs_texrender_destroy(f->full_render);
 	if (f->small_render)
 		gs_texrender_destroy(f->small_render);
+	if (f->blur_render)
+		gs_texrender_destroy(f->blur_render);
 	if (f->pixelate_effect)
 		gs_effect_destroy(f->pixelate_effect);
+	if (f->gaussian_effect)
+		gs_effect_destroy(f->gaussian_effect);
 	obs_leave_graphics();
 
 	delete f;
 }
 
-void draw_masks(himitsukao_filter *f, gs_texture_t *tex, uint32_t w, uint32_t h,
-		const std::vector<himitsukao::Rect> &masks)
-{
-	gs_eparam_t *image = gs_effect_get_param_by_name(f->pixelate_effect, "image");
-	gs_eparam_t *block_uv = gs_effect_get_param_by_name(f->pixelate_effect, "block_uv");
-	const int block_px = f->block_size.load();
-	vec2 block;
-	vec2_set(&block, static_cast<float>(block_px) / static_cast<float>(w),
-		 static_cast<float>(block_px) / static_cast<float>(h));
-	gs_effect_set_texture(image, tex);
-	gs_effect_set_vec2(block_uv, &block);
+// ---------------------------------------------------------------------------------------------------------------
+// Masking styles. All of them draw sub-regions of the captured frame texture on top of the plain frame.
 
+struct pixel_rect {
+	uint32_t x0, y0, x1, y1;
+};
+
+std::vector<pixel_rect> to_pixel_rects(const std::vector<himitsukao::Rect> &masks, uint32_t w, uint32_t h)
+{
+	std::vector<pixel_rect> out;
 	for (const auto &m : masks) {
 		const uint32_t x0 = std::min<uint32_t>(w - 1, static_cast<uint32_t>(std::floor(m.x * w)));
 		const uint32_t y0 = std::min<uint32_t>(h - 1, static_cast<uint32_t>(std::floor(m.y * h)));
 		const uint32_t x1 = std::min<uint32_t>(w, static_cast<uint32_t>(std::ceil((m.x + m.w) * w)));
 		const uint32_t y1 = std::min<uint32_t>(h, static_cast<uint32_t>(std::ceil((m.y + m.h) * h)));
-		if (x1 <= x0 || y1 <= y0)
-			continue;
+		if (x1 > x0 && y1 > y0)
+			out.push_back({x0, y0, x1, y1});
+	}
+	return out;
+}
+
+void draw_solid(const std::vector<pixel_rect> &rects)
+{
+	gs_effect_t *solid = obs_get_base_effect(OBS_EFFECT_SOLID);
+	vec4 color;
+	vec4_set(&color, 0.125f, 0.125f, 0.125f, 1.0f); // fixed dark grey
+	gs_effect_set_vec4(gs_effect_get_param_by_name(solid, "color"), &color);
+	for (const auto &r : rects) {
 		gs_matrix_push();
-		gs_matrix_translate3f(static_cast<float>(x0), static_cast<float>(y0), 0.0f);
-		while (gs_effect_loop(f->pixelate_effect, "Draw"))
-			gs_draw_sprite_subregion(tex, 0, x0, y0, x1 - x0, y1 - y0);
+		gs_matrix_translate3f(static_cast<float>(r.x0), static_cast<float>(r.y0), 0.0f);
+		while (gs_effect_loop(solid, "Solid"))
+			gs_draw_sprite(nullptr, 0, r.x1 - r.x0, r.y1 - r.y0);
 		gs_matrix_pop();
+	}
+}
+
+void draw_pixel(himitsukao_filter *f, gs_texture_t *tex, uint32_t w, uint32_t h, const std::vector<pixel_rect> &rects,
+		int block_px)
+{
+	gs_effect_t *effect = f->pixelate_effect;
+	vec2 block;
+	vec2_set(&block, static_cast<float>(block_px) / static_cast<float>(w),
+		 static_cast<float>(block_px) / static_cast<float>(h));
+	gs_effect_set_texture(gs_effect_get_param_by_name(effect, "image"), tex);
+	gs_effect_set_vec2(gs_effect_get_param_by_name(effect, "block_uv"), &block);
+	for (const auto &r : rects) {
+		gs_matrix_push();
+		gs_matrix_translate3f(static_cast<float>(r.x0), static_cast<float>(r.y0), 0.0f);
+		while (gs_effect_loop(effect, "Draw"))
+			gs_draw_sprite_subregion(tex, 0, r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0);
+		gs_matrix_pop();
+	}
+}
+
+// Separable gaussian: the horizontal pass fills blur_render (only around the masks, extended vertically by the
+// radius), the vertical pass reads it and draws on the frame. Samples are clamped to the frame by the sampler.
+void draw_gaussian(himitsukao_filter *f, gs_texture_t *tex, uint32_t w, uint32_t h,
+		   const std::vector<pixel_rect> &rects, float radius_px)
+{
+	gs_effect_t *effect = f->gaussian_effect;
+	gs_eparam_t *image = gs_effect_get_param_by_name(effect, "image");
+	gs_eparam_t *step = gs_effect_get_param_by_name(effect, "step_uv");
+	const float spacing_px = std::max(0.5f, radius_px / 12.0f); // 25 taps cover +-12 spacings = +-radius
+	const uint32_t margin = static_cast<uint32_t>(std::ceil(radius_px)) + 1;
+
+	if (!f->blur_render)
+		f->blur_render = gs_texrender_create(GS_RGBA, GS_ZS_NONE);
+	gs_texrender_reset(f->blur_render);
+	if (!gs_texrender_begin(f->blur_render, w, h)) {
+		draw_solid(rects); // cannot blur: hide with a solid fill rather than show the face
+		return;
+	}
+	vec4 clear;
+	vec4_zero(&clear);
+	gs_clear(GS_CLEAR_COLOR, &clear, 0.0f, 0);
+	gs_ortho(0.0f, static_cast<float>(w), 0.0f, static_cast<float>(h), -100.0f, 100.0f);
+	gs_blend_state_push();
+	gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
+	vec2 dir;
+	vec2_set(&dir, spacing_px / static_cast<float>(w), 0.0f);
+	gs_effect_set_texture(image, tex);
+	gs_effect_set_vec2(step, &dir);
+	for (const auto &r : rects) {
+		const uint32_t y0 = r.y0 > margin ? r.y0 - margin : 0;
+		const uint32_t y1 = std::min<uint32_t>(h, r.y1 + margin);
+		gs_matrix_push();
+		gs_matrix_translate3f(static_cast<float>(r.x0), static_cast<float>(y0), 0.0f);
+		while (gs_effect_loop(effect, "Draw"))
+			gs_draw_sprite_subregion(tex, 0, r.x0, y0, r.x1 - r.x0, y1 - y0);
+		gs_matrix_pop();
+	}
+	gs_blend_state_pop();
+	gs_texrender_end(f->blur_render);
+
+	gs_texture_t *blurred = gs_texrender_get_texture(f->blur_render);
+	if (!blurred) {
+		draw_solid(rects);
+		return;
+	}
+	vec2_set(&dir, 0.0f, spacing_px / static_cast<float>(h));
+	gs_effect_set_texture(image, blurred);
+	gs_effect_set_vec2(step, &dir);
+	for (const auto &r : rects) {
+		gs_matrix_push();
+		gs_matrix_translate3f(static_cast<float>(r.x0), static_cast<float>(r.y0), 0.0f);
+		while (gs_effect_loop(effect, "Draw"))
+			gs_draw_sprite_subregion(blurred, 0, r.x0, r.y0, r.x1 - r.x0, r.y1 - r.y0);
+		gs_matrix_pop();
+	}
+}
+
+void draw_masks(himitsukao_filter *f, gs_texture_t *tex, uint32_t w, uint32_t h,
+		const std::vector<himitsukao::Rect> &masks, himitsukao::Style style, int strength, bool whole_frame)
+{
+	const std::vector<pixel_rect> rects = to_pixel_rects(masks, w, h);
+	if (rects.empty())
+		return;
+
+	// Sizes are expressed for a 1080p frame and scaled up for bigger ones.
+	const float scale = std::max(1.0f, static_cast<float>(h) / 1080.0f);
+	const float t = static_cast<float>(std::clamp(strength, 1, 100) - 1) / 99.0f;
+
+	if (style == himitsukao::Style::Pixel && f->pixelate_effect) {
+		int block = static_cast<int>(std::lround((4.0f + t * 60.0f) * scale)); // 4..64 px
+		if (whole_frame)
+			block = std::max(block, static_cast<int>(w / 20)); // big blocks for the emergency mode
+		draw_pixel(f, tex, w, h, rects, std::max(2, block));
+	} else if (style == himitsukao::Style::Gaussian && f->gaussian_effect) {
+		float radius = (2.0f + t * 46.0f) * scale; // 2..48 px
+		if (whole_frame)
+			radius = std::max(radius, 32.0f * scale);
+		draw_gaussian(f, tex, w, h, rects, radius);
+	} else {
+		draw_solid(rects); // solid style, or the effect of the chosen style is unavailable: still hide
 	}
 }
 
@@ -408,7 +595,7 @@ void filter_video_render(void *data, gs_effect_t *)
 
 	obs_source_t *target = obs_filter_get_target(f->source);
 	obs_source_t *parent = obs_filter_get_parent(f->source);
-	if (!target || !parent || !f->pixelate_effect) {
+	if (!target || !parent) {
 		obs_source_skip_video_filter(f->source);
 		return;
 	}
@@ -450,7 +637,11 @@ void filter_video_render(void *data, gs_effect_t *)
 		return;
 	}
 
+	himitsukao::HimitsukaoService *service = plugin_service();
+	const himitsukao::Mode mode = service ? service->runtime().mode() : himitsukao::Mode::Normal;
+
 	// 2. Analysis pipeline: collect finished GPU copies from earlier frames, then queue a new one if due.
+	// Skipped in the "whole frame" emergency mode: nothing is shown, so nothing to analyse.
 	++f->frame_counter;
 	for (auto &slot : f->stages) {
 		if (slot.pending && f->frame_counter > slot.staged_frame)
@@ -458,23 +649,42 @@ void filter_video_render(void *data, gs_effect_t *)
 	}
 	const uint64_t now_ns = os_gettime_ns();
 	const uint64_t interval_ns = 1000000000ULL / static_cast<uint64_t>(std::max(1, f->analysis_fps.load()));
-	if (f->worker.joinable() && now_ns - f->last_analysis_ns >= interval_ns) {
+	if (f->worker.joinable() && mode != himitsukao::Mode::FrameAll && now_ns - f->last_analysis_ns >= interval_ns) {
 		f->last_analysis_ns = now_ns;
 		queue_analysis(f, tex, w, h);
 	}
 
-	// 3. Draw the frame, then the pixelated faces on top.
+	// 3. Which regions to hide, according to the global mode.
 	std::vector<himitsukao::Rect> masks;
-	if (f->identity)
-		masks = f->identity->masks(now_ms(), f->hold_ms.load(), f->padding.load());
+	switch (mode) {
+	case himitsukao::Mode::Normal:
+	case himitsukao::Mode::FacesAll:
+		if (f->identity)
+			masks = f->identity->masks(now_ms(), f->hold_ms.load(), f->padding.load(),
+						   mode == himitsukao::Mode::FacesAll);
+		break;
+	case himitsukao::Mode::FrameAll:
+		masks.push_back(himitsukao::Rect{0.f, 0.f, 1.f, 1.f});
+		break;
+	case himitsukao::Mode::Off:
+		break;
+	}
 
+	// 4. Draw the frame, then the masks on top.
 	gs_effect_t *def = obs_get_base_effect(OBS_EFFECT_DEFAULT);
 	gs_effect_set_texture(gs_effect_get_param_by_name(def, "image"), tex);
 	while (gs_effect_loop(def, "Draw"))
 		gs_draw_sprite(tex, 0, w, h);
 
-	if (!masks.empty())
-		draw_masks(f, tex, w, h, masks);
+	if (!masks.empty()) {
+		himitsukao::Style style = himitsukao::Style::Pixel;
+		int strength = 50;
+		if (service) {
+			style = service->runtime().style();
+			strength = service->runtime().strength();
+		}
+		draw_masks(f, tex, w, h, masks, style, strength, mode == himitsukao::Mode::FrameAll);
+	}
 }
 
 uint32_t filter_get_width(void *data)

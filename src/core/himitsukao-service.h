@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <mutex>
 #include <string>
@@ -8,6 +9,7 @@
 
 #include "face-database.h"
 #include "identity-manager.h"
+#include "runtime-state.h"
 
 namespace himitsukao {
 
@@ -33,6 +35,13 @@ public:
 	FaceDatabase &database() { return db_; }
 	EnrollmentBoard &board() { return board_; }
 
+	// Global masking state (mode: not persisted; style and strength: persisted by whoever sets the listener).
+	RuntimeState &runtime() { return runtime_; }
+	void set_mode(Mode mode) { runtime_.set_mode(mode); }
+	void set_style(Style style, int strength);
+	// Called (on the calling thread) after every set_style().
+	void set_style_listener(std::function<void()> listener);
+
 	// Filters register their IdentityManager in create() and MUST unregister it before destroying it.
 	std::string register_instance(const std::string &label, IdentityManager *manager);
 	void unregister_instance(const std::string &key);
@@ -49,6 +58,8 @@ public:
 
 	// Removes a person (and saves the database) and re-masks them immediately on every live track.
 	bool remove_person(const std::string &person_id);
+	// Renames a person and saves the database (session people are never written).
+	bool rename_person(const std::string &person_id, const std::string &name);
 
 private:
 	struct Instance {
@@ -58,6 +69,9 @@ private:
 
 	FaceDatabase db_;
 	EnrollmentBoard board_;
+	RuntimeState runtime_;
+	std::mutex listener_mutex_;
+	std::function<void()> style_listener_;
 	mutable std::mutex mutex_;
 	std::map<std::string, Instance> instances_;
 	uint64_t next_key_ = 1;

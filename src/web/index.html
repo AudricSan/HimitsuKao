@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111418">
+<title>HimitsuKao</title>
+<style>
+:root {
+  --bg: #111418; --panel: #1b2027; --panel2: #232a33; --text: #e8ecf1; --muted: #8b97a6;
+  --accent: #4da3ff; --ok: #3ecf8e; --red: #e5484d; --orange: #f5a524; --radius: 14px;
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { padding: 0 12px calc(24px + env(safe-area-inset-bottom)); max-width: 640px; margin: 0 auto; }
+button { font: inherit; color: inherit; border: 0; border-radius: var(--radius); background: var(--panel2); padding: 14px 12px; min-height: 52px; cursor: pointer; touch-action: manipulation; }
+button:active { filter: brightness(1.25); }
+button[disabled] { opacity: .5; }
+h2 { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 22px 4px 8px; font-weight: 600; }
+.hidden { display: none !important; }
+
+#banner { position: sticky; top: 0; z-index: 20; background: var(--orange); color: #1a1100; text-align: center; padding: 8px; font-weight: 600; border-radius: 0 0 var(--radius) var(--radius); }
+#topbar { position: sticky; top: 0; z-index: 10; background: var(--bg); padding: 10px 0 6px; }
+#banner + #topbar { top: 38px; }
+#modes { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mode { min-height: 64px; font-weight: 700; background: var(--panel); border: 2px solid transparent; line-height: 1.15; }
+.mode.sel { border-color: var(--ok); background: #14301f; }
+.mode.emergency { color: #ffd9da; background: #3a1517; }
+.mode.emergency.sel { border-color: var(--red); background: var(--red); color: #fff; }
+.mode.off { color: #ffe7bf; background: #3a2a0c; }
+.mode.off.sel { border-color: var(--orange); background: var(--orange); color: #1a1100; }
+.mode.confirm { outline: 3px solid #fff; }
+.mode small { display: block; font-weight: 500; opacity: .8; font-size: 12px; margin-top: 2px; }
+
+#faces { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
+.face { position: relative; background: var(--panel); border-radius: var(--radius); padding: 6px; text-align: center; border: 2px solid transparent; }
+.face.unknown { border-color: #55323a; }
+.face.sel { border-color: var(--accent); }
+.face img, .face .ph { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 10px; background: #0b0d10; display: block; }
+.face .cap { margin-top: 4px; font-size: 13px; min-height: 18px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge { position: absolute; top: 10px; left: 10px; background: var(--red); color: #fff; font-size: 11px; font-weight: 700; padding: 2px 7px; border-radius: 999px; }
+.badge.known { background: var(--ok); color: #04210f; }
+.empty { color: var(--muted); padding: 14px 4px; }
+
+#sheet { background: var(--panel); border-radius: var(--radius); padding: 12px; margin-top: 10px; border: 2px solid var(--accent); }
+#sheet .row { display: flex; gap: 12px; align-items: center; margin-bottom: 10px; }
+#sheet img { width: 64px; height: 64px; border-radius: 10px; object-fit: cover; background: #0b0d10; }
+#sheet input[type=text], .pinbox input { width: 100%; font: inherit; color: var(--text); background: #0b0d10; border: 1px solid #333c48; border-radius: 10px; padding: 14px 12px; min-height: 52px; }
+#sheet .btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px; }
+.primary { background: var(--accent); color: #031427; font-weight: 700; }
+.secondary { background: var(--panel2); font-weight: 600; }
+#sheetClose { margin-top: 8px; width: 100%; background: transparent; color: var(--muted); min-height: 44px; }
+
+.person { display: flex; gap: 10px; align-items: center; background: var(--panel); border-radius: var(--radius); padding: 8px; margin-bottom: 8px; }
+.person img, .person .ph { width: 56px; height: 56px; border-radius: 10px; object-fit: cover; background: #0b0d10; flex: none; }
+.person .nm { flex: 1; min-width: 0; padding: 10px 4px; min-height: 48px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; cursor: text; }
+.person input { flex: 1; min-width: 0; font: inherit; color: var(--text); background: #0b0d10; border: 1px solid var(--accent); border-radius: 10px; padding: 10px; min-height: 48px; }
+.tag { font-size: 11px; font-weight: 700; background: var(--panel2); color: var(--orange); border-radius: 999px; padding: 2px 8px; margin-left: 6px; vertical-align: middle; }
+.del { background: #3a1517; color: #ffd9da; min-width: 52px; padding: 10px; }
+.del.confirm { background: var(--red); color: #fff; font-weight: 700; }
+.ok { background: var(--ok); color: #04210f; font-weight: 700; min-width: 52px; }
+
+details { background: var(--panel); border-radius: var(--radius); padding: 0 12px; }
+summary { padding: 16px 0; font-weight: 600; cursor: pointer; list-style: none; }
+summary::-webkit-details-marker { display: none; }
+summary::after { content: "\25BE"; float: right; color: var(--muted); }
+details[open] summary::after { content: "\25B4"; }
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+.seg button { background: var(--panel2); font-weight: 600; }
+.seg button.sel { background: var(--accent); color: #031427; }
+.slider { display: flex; align-items: center; gap: 12px; padding-bottom: 16px; }
+.slider input { flex: 1; height: 40px; accent-color: var(--accent); }
+.slider output { width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
+
+#toast { position: fixed; left: 12px; right: 12px; bottom: calc(14px + env(safe-area-inset-bottom)); max-width: 616px; margin: 0 auto; z-index: 50; padding: 14px; border-radius: var(--radius); font-weight: 600; text-align: center; background: var(--panel2); box-shadow: 0 6px 24px #0008; }
+#toast.good { background: var(--ok); color: #04210f; }
+#toast.bad { background: var(--red); color: #fff; }
+
+#pinScreen { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 20px; }
+.pinbox { width: 100%; max-width: 360px; text-align: center; }
+.pinbox h1 { margin: 0 0 6px; font-size: 26px; }
+.pinbox p { color: var(--muted); margin: 0 0 18px; }
+.pinbox input { text-align: center; font-size: 28px; letter-spacing: .3em; margin-bottom: 12px; }
+.pinbox button { width: 100%; }
+#pinErr { color: #ff8b8f; min-height: 24px; margin-top: 10px; }
+</style>
+</head>
+<body>
+
+<div id="pinScreen" class="hidden">
+  <div class="pinbox">
+    <h1>HimitsuKao</h1>
+    <p id="pinHelp"></p>
+    <input id="pinInput" type="password" inputmode="numeric" autocomplete="off" maxlength="12">
+    <button id="pinGo" class="primary"></button>
+    <div id="pinErr"></div>
+  </div>
+</div>
+
+<div id="banner" class="hidden"></div>
+
+<div id="topbar">
+  <div id="modes"></div>
+</div>
+
+<h2 id="hLive"></h2>
+<div id="faces"></div>
+<div id="sheet" class="hidden">
+  <div class="row"><img id="sheetImg" alt=""><div id="sheetHint"></div></div>
+  <input id="sheetName" type="text" maxlength="40" autocomplete="off" autocapitalize="words">
+  <div class="btns">
+    <button id="addPerm" class="primary"></button>
+    <button id="addSession" class="secondary"></button>
+  </div>
+  <button id="sheetClose"></button>
+</div>
+
+<h2 id="hKnown"></h2>
+<div id="known"></div>
+
+<h2 id="hStyle"></h2>
+<details id="styleBox">
+  <summary id="styleSummary"></summary>
+  <div class="seg" id="styleSeg"></div>
+  <div class="slider"><span id="strengthLabel"></span><input id="strength" type="range" min="1" max="100" step="1"><output id="strengthOut"></output></div>
+</details>
+
+<div id="toast" class="hidden"></div>
+
+<script>
+"use strict";
+(function () {
+  var lang = (navigator.language || "en").toLowerCase().indexOf("fr") === 0 ? "fr" : "en";
+  document.documentElement.lang = lang;
+  var TXT = {
+    fr: {
+      pinHelp: "Entrez le code PIN affiché dans OBS (propriétés du filtre).", pinGo: "Entrer", pinBad: "Code PIN incorrect.",
+      pinLocked: "Trop d'essais. Réessayez dans une minute.", offline: "Connexion perdue, nouvelle tentative…",
+      normal: "Normal", normalSub: "flouter les inconnus", faces_all: "Tout flouter", faces_allSub: "tous les visages",
+      frame_all: "Tout flouter", frame_allSub: "toute l'image", off: "Désactivé", offSub: "aucun flou", confirm: "Confirmer ?",
+      live: "En direct", noFaces: "Aucun visage en ce moment.", blurred: "flouté", tapToAdd: "Touchez un visage inconnu pour l'ajouter.",
+      sheetHint: "Qui est-ce ?", namePh: "Nom", addPerm: "Ajouter", addSession: "Juste ce live", close: "Annuler",
+      known: "Connus", noKnown: "Personne pour l'instant.", thisLive: "ce live", del: "Supprimer", delConfirm: "Sûr ?",
+      ok: "OK", style: "Style du flou", pixel: "Pixels", gaussian: "Flou", solid: "Couleur unie", strength: "Force",
+      nameBad: "Nom : 1 à 40 caractères.", enrolling: "Ajout en cours…", enrolled: "Ajouté : ", enrollFail: "Échec : le visage a disparu ou est inexploitable.",
+      removed: "Supprimé, de nouveau flouté.", renamed: "Renommé.", err: "Erreur", gone: "Visage parti"
+    },
+    en: {
+      pinHelp: "Enter the PIN shown in OBS (filter properties).", pinGo: "Enter", pinBad: "Wrong PIN.",
+      pinLocked: "Too many attempts. Try again in a minute.", offline: "Connection lost, retrying…",
+      normal: "Normal", normalSub: "blur unknown faces", faces_all: "Blur all", faces_allSub: "every face",
+      frame_all: "Blur all", frame_allSub: "whole image", off: "Off", offSub: "no blur", confirm: "Confirm?",
+      live: "Live", noFaces: "No face right now.", blurred: "blurred", tapToAdd: "Tap an unknown face to add it.",
+      sheetHint: "Who is this?", namePh: "Name", addPerm: "Add", addSession: "This live only", close: "Cancel",
+      known: "Known people", noKnown: "Nobody yet.", thisLive: "this live", del: "Delete", delConfirm: "Sure?",
+      ok: "OK", style: "Blur style", pixel: "Pixels", gaussian: "Blur", solid: "Solid", strength: "Strength",
+      nameBad: "Name: 1 to 40 characters.", enrolling: "Adding…", enrolled: "Added: ", enrollFail: "Failed: the face left or is unusable.",
+      removed: "Removed, masked again.", renamed: "Renamed.", err: "Error", gone: "Face gone"
+    }
+  };
+  function t(k) { return TXT[lang][k] || k; }
+  function $(id) { return document.getElementById(id); }
+  function el(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+
+  var PIN_KEY = "hk_pin";
+  var pin = "";
+  try { pin = localStorage.getItem(PIN_KEY) || ""; } catch (e) { pin = ""; }
+  var online = true;
+  var state = { mode: "normal", style: "pixel", strength: 50 };
+  var lastKnownJson = "", lastLiveJson = "";
+  var selected = null; // {instance, track_id, thumbnail}
+  var enrolling = false;
+
+  // ---------------------------------------------------------------- network
+  function api(method, path, body) {
+    var ctl = typeof AbortController === "function" ? new AbortController() : null;
+    var timer = ctl ? setTimeout(function () { ctl.abort(); }, 4000) : null;
+    var opts = { method: method, headers: { "X-HimitsuKao-Pin": pin }, cache: "no-store" };
+    if (body !== undefined) { opts.body = JSON.stringify(body); opts.headers["Content-Type"] = "application/json"; }
+    if (ctl) opts.signal = ctl.signal;
+    return fetch(path, opts).then(function (r) {
+      if (timer) clearTimeout(timer);
+      setOnline(true);
+      if (r.status === 401) { showPin(""); throw { handled: true }; }
+      if (r.status === 429) { showPin(t("pinLocked")); throw { handled: true }; }
+      return r.text().then(function (txt) {
+        var data = null;
+        try { data = txt ? JSON.parse(txt) : null; } catch (e) { data = null; }
+        if (!r.ok) throw { status: r.status, data: data };
+        return data;
+      });
+    }, function (err) {
+      if (timer) clearTimeout(timer);
+      setOnline(false);
+      throw { network: true, err: err };
+    });
+  }
+  function setOnline(v) {
+    if (online === v) return;
+    online = v;
+    var b = $("banner");
+    b.textContent = t("offline");
+    b.classList.toggle("hidden", v);
+  }
+
+  // ---------------------------------------------------------------- PIN screen
+  function showPin(msg) {
+    $("pinScreen").classList.remove("hidden");
+    $("pinErr").textContent = msg || "";
+    $("pinInput").value = "";
+    setTimeout(function () { $("pinInput").focus(); }, 50);
+  }
+  function submitPin() {
+    var v = $("pinInput").value.trim();
+    if (!v) return;
+    var old = pin;
+    pin = v;
+    api("GET", "/api/state").then(function (s) {
+      try { localStorage.setItem(PIN_KEY, v); } catch (e) {}
+      $("pinScreen").classList.add("hidden");
+      applyState(s);
+      refreshKnown(true);
+    }, function (e) {
+      if (e && e.handled) return;
+      pin = old;
+      $("pinErr").textContent = e && e.network ? t("offline") : t("pinBad");
+    });
+  }
+
+  // ---------------------------------------------------------------- toast
+  var toastTimer = null;
+  function toast(msg, kind) {
+    var n = $("toast");
+    n.textContent = msg;
+    n.className = kind || "";
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { n.className = "hidden"; }, 3200);
+  }
+
+  // ---------------------------------------------------------------- modes
+  var MODES = ["normal", "faces_all", "frame_all", "off"];
+  var offConfirmTimer = null, offArmed = false;
+  function buildModes() {
+    var box = $("modes");
+    box.textContent = "";
+    MODES.forEach(function (m) {
+      var b = el("button", "mode" + (m === "frame_all" || m === "faces_all" ? " emergency" : "") + (m === "off" ? " off" : ""));
+      b.dataset.mode = m;
+      b.appendChild(document.createTextNode(t(m)));
+      var s = el("small", "", t(m + "Sub"));
+      b.appendChild(s);
+      b.addEventListener("click", function () { onMode(m, b); });
+      box.appendChild(b);
+    });
+    paintModes();
+  }
+  function paintModes() {
+    var bs = $("modes").children;
+    for (var i = 0; i < bs.length; i++) {
+      var m = bs[i].dataset.mode;
+      bs[i].classList.toggle("sel", m === state.mode);
+      var armed = m === "off" && offArmed;
+      bs[i].classList.toggle("confirm", armed);
+      bs[i].firstChild.nodeValue = armed ? t("confirm") : t(m);
+    }
+  }
+  function onMode(m) {
+    if (m === "off" && state.mode !== "off" && !offArmed) {
+      offArmed = true;
+      paintModes();
+      clearTimeout(offConfirmTimer);
+      offConfirmTimer = setTimeout(function () { offArmed = false; paintModes(); }, 3000);
+      return;
+    }
+    offArmed = false;
+    var previous = state.mode;
+    state.mode = m;
+    paintModes();
+    api("POST", "/api/mode", { mode: m }).then(function (r) {
+      if (r && r.mode) { state.mode = r.mode; paintModes(); }
+    }, function (e) {
+      state.mode = previous; paintModes();
+      if (!(e && (e.handled || e.network))) toast(t("err"), "bad");
+    });
+  }
+
+  // ---------------------------------------------------------------- style
+  function buildStyle() {
+    var seg = $("styleSeg");
+    seg.textContent = "";
+    ["pixel", "gaussian", "solid"].forEach(function (s) {
+      var b = el("button", "", t(s));
+      b.dataset.style = s;
+      b.addEventListener("click", function () { state.style = s; paintStyle(); sendStyle(true); });
+      seg.appendChild(b);
+    });
+    paintStyle();
+  }
+  function paintStyle() {
+    var bs = $("styleSeg").children;
+    for (var i = 0; i < bs.length; i++) bs[i].classList.toggle("sel", bs[i].dataset.style === state.style);
+    var sl = $("strength");
+    if (document.activeElement !== sl) sl.value = state.strength;
+    $("strengthOut").textContent = state.strength;
+    $("strength").disabled = state.style === "solid";
+  }
+  var styleTimer = null, styleDirty = false;
+  function sendStyle(now) {
+    clearTimeout(styleTimer);
+    styleDirty = true;
+    styleTimer = setTimeout(function () {
+      api("POST", "/api/style", { style: state.style, strength: state.strength })
+        .then(function () {}, function (e) { if (!(e && (e.handled || e.network))) toast(t("err"), "bad"); })
+        .then(function () { styleDirty = false; });
+    }, now ? 0 : 300);
+  }
+
+  function applyState(s) {
+    if (!s) return;
+    if (!offArmed || s.mode === "off") { state.mode = s.mode; }
+    if (!styleDirty) { state.style = s.style; state.strength = s.strength; }
+    paintModes();
+    paintStyle();
+  }
+
+  // ---------------------------------------------------------------- live faces
+  function renderLive(list) {
+    var json = JSON.stringify(list);
+    if (json === lastLiveJson) return;
+    lastLiveJson = json;
+    var box = $("faces");
+    box.textContent = "";
+    if (!list.length) {
+      box.appendChild(el("div", "empty", t("noFaces")));
+      return;
+    }
+    list.forEach(function (f) {
+      var known = !!f.person_id;
+      var d = el("div", "face " + (known ? "known" : "unknown"));
+      if (selected && selected.instance === f.instance && selected.track_id === f.track_id) d.classList.add("sel");
+      if (f.thumbnail) { var im = el("img"); im.src = f.thumbnail; im.alt = ""; d.appendChild(im); } else { d.appendChild(el("div", "ph")); }
+      d.appendChild(el("span", "badge" + (known ? " known" : ""), known ? "✓" : t("blurred")));
+      d.appendChild(el("div", "cap", known ? f.name : ""));
+      if (!known) d.addEventListener("click", function () { openSheet(f); });
+      box.appendChild(d);
+    });
+  }
+  function pollLive() {
+    api("GET", "/api/live").then(renderLive, function () {}).then(function () { setTimeout(pollLive, online ? 500 : 2000); });
+  }
+  function pollState() {
+    api("GET", "/api/state").then(applyState, function () {}).then(function () { setTimeout(pollState, online ? 2000 : 3000); });
+  }
+
+  // ---------------------------------------------------------------- enrollment sheet
+  function openSheet(f) {
+    selected = { instance: f.instance, track_id: f.track_id };
+    $("sheet").classList.remove("hidden");
+    $("sheetImg").src = f.thumbnail || "";
+    $("sheetName").value = "";
+    lastLiveJson = ""; // repaint the selection highlight
+    setTimeout(function () { $("sheetName").focus(); }, 30);
+    $("sheet").scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+  function closeSheet() {
+    selected = null;
+    $("sheet").classList.add("hidden");
+    lastLiveJson = "";
+  }
+  function enroll(session) {
+    if (!selected || enrolling) return;
+    var name = $("sheetName").value.trim();
+    if (!name || name.length > 40) { toast(t("nameBad"), "bad"); return; }
+    enrolling = true;
+    var sel = selected;
+    toast(t("enrolling"));
+    api("POST", "/api/known", { instance: sel.instance, track_id: sel.track_id, name: name, session: session }).then(function (r) {
+      closeSheet();
+      pollEnroll(r.request_id, name, Date.now());
+    }, function (e) {
+      enrolling = false;
+      if (!(e && (e.handled || e.network))) toast(t("enrollFail"), "bad");
+    });
+  }
+  function pollEnroll(id, name, started) {
+    api("GET", "/api/enroll/" + encodeURIComponent(id)).then(function (r) {
+      if (r.state === "done") { enrolling = false; toast(t("enrolled") + name, "good"); refreshKnown(true); return; }
+      if (r.state === "failed" || Date.now() - started > 8000) { enrolling = false; toast(t("enrollFail"), "bad"); return; }
+      setTimeout(function () { pollEnroll(id, name, started); }, 350);
+    }, function (e) {
+      if (e && e.network && Date.now() - started < 8000) { setTimeout(function () { pollEnroll(id, name, started); }, 1000); return; }
+      enrolling = false;
+    });
+  }
+
+  // ---------------------------------------------------------------- known people
+  var editingId = null;
+  var delArmed = null, delTimer = null;
+  function renderKnown(list) {
+    var json = JSON.stringify(list);
+    if (json === lastKnownJson && editingId === null) return;
+    if (editingId !== null) return; // do not rebuild while a name is being edited
+    lastKnownJson = json;
+    var box = $("known");
+    box.textContent = "";
+    if (!list.length) { box.appendChild(el("div", "empty", t("noKnown"))); return; }
+    list.forEach(function (p) {
+      var row = el("div", "person");
+      if (p.thumbnail) { var im = el("img"); im.src = p.thumbnail; im.alt = ""; row.appendChild(im); } else { row.appendChild(el("div", "ph")); }
+      var nm = el("div", "nm", p.name);
+      if (p.session) nm.appendChild(el("span", "tag", t("thisLive")));
+      nm.addEventListener("click", function () { startRename(p, row); });
+      row.appendChild(nm);
+      var del = el("button", "del", delArmed === p.id ? t("delConfirm") : "✕");
+      if (delArmed === p.id) del.classList.add("confirm");
+      del.setAttribute("aria-label", t("del"));
+      del.addEventListener("click", function () { onDelete(p, del); });
+      row.appendChild(del);
+      box.appendChild(row);
+    });
+  }
+  function startRename(p, row) {
+    editingId = p.id;
+    var nm = row.querySelector(".nm");
+    var input = el("input");
+    input.type = "text"; input.value = p.name; input.maxLength = 40;
+    row.replaceChild(input, nm);
+    var ok = el("button", "ok", t("ok"));
+    var del = row.querySelector(".del");
+    row.replaceChild(ok, del);
+    input.focus(); input.select();
+    function done(save) {
+      var v = input.value.trim();
+      editingId = null;
+      if (save && v && v !== p.name) {
+        api("PATCH", "/api/known/" + encodeURIComponent(p.id), { name: v }).then(function () { toast(t("renamed"), "good"); refreshKnown(true); },
+          function (e) { if (!(e && (e.handled || e.network))) toast(t("nameBad"), "bad"); refreshKnown(true); });
+      } else { refreshKnown(true); }
+    }
+    ok.addEventListener("click", function () { done(true); });
+    input.addEventListener("keydown", function (ev) { if (ev.key === "Enter") done(true); if (ev.key === "Escape") done(false); });
+  }
+  function onDelete(p, btn) {
+    if (delArmed !== p.id) {
+      delArmed = p.id;
+      btn.textContent = t("delConfirm"); btn.classList.add("confirm");
+      clearTimeout(delTimer);
+      delTimer = setTimeout(function () { delArmed = null; lastKnownJson = ""; refreshKnown(true); }, 3000);
+      return;
+    }
+    delArmed = null;
+    clearTimeout(delTimer);
+    api("DELETE", "/api/known/" + encodeURIComponent(p.id)).then(function () { toast(t("removed"), "good"); refreshKnown(true); },
+      function (e) { if (!(e && (e.handled || e.network))) toast(t("err"), "bad"); refreshKnown(true); });
+  }
+  function refreshKnown(force) {
+    if (force) lastKnownJson = "";
+    return api("GET", "/api/known").then(renderKnown, function () {});
+  }
+  function pollKnown() {
+    refreshKnown(false).then(function () { setTimeout(pollKnown, online ? 3000 : 4000); });
+  }
+
+  // ---------------------------------------------------------------- init
+  function init() {
+    $("pinHelp").textContent = t("pinHelp");
+    $("pinGo").textContent = t("pinGo");
+    $("hLive").textContent = t("live");
+    $("hKnown").textContent = t("known");
+    $("hStyle").textContent = t("style");
+    $("styleSummary").textContent = t("style");
+    $("strengthLabel").textContent = t("strength");
+    $("hStyle").classList.add("hidden"); // the summary already carries the title
+    $("sheetHint").textContent = t("sheetHint");
+    $("sheetName").placeholder = t("namePh");
+    $("addPerm").textContent = t("addPerm");
+    $("addSession").textContent = t("addSession");
+    $("sheetClose").textContent = t("close");
+    $("faces").appendChild(el("div", "empty", t("tapToAdd")));
+    buildModes();
+    buildStyle();
+
+    $("pinGo").addEventListener("click", submitPin);
+    $("pinInput").addEventListener("keydown", function (e) { if (e.key === "Enter") submitPin(); });
+    $("addPerm").addEventListener("click", function () { enroll(false); });
+    $("addSession").addEventListener("click", function () { enroll(true); });
+    $("sheetClose").addEventListener("click", closeSheet);
+    $("sheetName").addEventListener("keydown", function (e) { if (e.key === "Enter") enroll(false); });
+    $("strength").addEventListener("input", function () { state.strength = parseInt(this.value, 10); $("strengthOut").textContent = state.strength; sendStyle(false); });
+
+    if (!pin) { showPin(""); } else { refreshKnown(true); }
+    pollLive();
+    pollState();
+    setTimeout(pollKnown, 3000);
+  }
+  init();
+})();
+</script>
+</body>
+</html>

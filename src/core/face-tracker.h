@@ -35,7 +35,7 @@ struct Track {
 
 // Same as FaceTracker::masks() (known people are skipped) but on a plain list of tracks (e.g. a snapshot published to another thread).
 std::vector<Rect> masks_from_tracks(const std::vector<Track> &tracks, int64_t now_ms, int64_t hold_ms = 300,
-				    float padding = 1.3f);
+				    float padding = 1.3f, bool include_known = false);
 
 struct TrackerConfig {
 	float iou_threshold = 0.3f; // minimum IoU to match a detection to a track

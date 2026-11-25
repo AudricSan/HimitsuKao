@@ -208,6 +208,18 @@ bool FaceDatabase::remove(const std::string &id)
 	return true;
 }
 
+bool FaceDatabase::rename(const std::string &id, const std::string &new_name)
+{
+	std::lock_guard<std::mutex> lock(mutex_);
+	for (auto &p : people_) {
+		if (p.info.id == id) {
+			p.info.name = new_name;
+			return true;
+		}
+	}
+	return false;
+}
+
 bool FaceDatabase::contains(const std::string &id) const
 {
 	std::lock_guard<std::mutex> lock(mutex_);

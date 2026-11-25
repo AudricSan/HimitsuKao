@@ -1,0 +1,117 @@
+// Separable gaussian blur, one direction per pass (step_uv = direction * tap spacing, in UV units).
+// 25 unrolled taps (no loop) with gaussian weights; the spacing grows with the blur radius.
+// Meant to be drawn with gs_draw_sprite_subregion(): the UVs are the absolute UVs of the source texture.
+
+uniform float4x4 ViewProj;
+uniform texture2d image;
+uniform float2 step_uv;
+
+sampler_state blur_sampler {
+	Filter    = Linear;
+	AddressU  = Clamp;
+	AddressV  = Clamp;
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in)
+{
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = v_in.uv;
+	return vert_out;
+}
+
+float4 PSBlur(VertData v_in) : TARGET
+{
+	float4 sum = float4(0.0, 0.0, 0.0, 0.0);
+	float wsum = 0.0;
+	float wm12 = exp(-144.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (-12.0)) * wm12;
+	wsum += wm12;
+	float wm11 = exp(-121.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (-11.0)) * wm11;
+	wsum += wm11;
+	float wm10 = exp(-100.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (-10.0)) * wm10;
+	wsum += wm10;
+	float wm9 = exp(-81.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (-9.0)) * wm9;
+	wsum += wm9;
+	float wm8 = exp(-64.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (-8.0)) * wm8;
+	wsum += wm8;
+	float wm7 = exp(-49.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (-7.0)) * wm7;
+	wsum += wm7;
+	float wm6 = exp(-36.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (-6.0)) * wm6;
+	wsum += wm6;
+	float wm5 = exp(-25.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (-5.0)) * wm5;
+	wsum += wm5;
+	float wm4 = exp(-16.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (-4.0)) * wm4;
+	wsum += wm4;
+	float wm3 = exp(-9.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (-3.0)) * wm3;
+	wsum += wm3;
+	float wm2 = exp(-4.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (-2.0)) * wm2;
+	wsum += wm2;
+	float wm1 = exp(-1.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (-1.0)) * wm1;
+	wsum += wm1;
+	float wp0 = exp(-0.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (0.0)) * wp0;
+	wsum += wp0;
+	float wp1 = exp(-1.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (1.0)) * wp1;
+	wsum += wp1;
+	float wp2 = exp(-4.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (2.0)) * wp2;
+	wsum += wp2;
+	float wp3 = exp(-9.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (3.0)) * wp3;
+	wsum += wp3;
+	float wp4 = exp(-16.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (4.0)) * wp4;
+	wsum += wp4;
+	float wp5 = exp(-25.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (5.0)) * wp5;
+	wsum += wp5;
+	float wp6 = exp(-36.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (6.0)) * wp6;
+	wsum += wp6;
+	float wp7 = exp(-49.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (7.0)) * wp7;
+	wsum += wp7;
+	float wp8 = exp(-64.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (8.0)) * wp8;
+	wsum += wp8;
+	float wp9 = exp(-81.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (9.0)) * wp9;
+	wsum += wp9;
+	float wp10 = exp(-100.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (10.0)) * wp10;
+	wsum += wp10;
+	float wp11 = exp(-121.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (11.0)) * wp11;
+	wsum += wp11;
+	float wp12 = exp(-144.0 / 46.08);
+	sum += image.Sample(blur_sampler, v_in.uv + step_uv * (12.0)) * wp12;
+	wsum += wp12;
+	return sum / wsum;
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSBlur(v_in);
+	}
+}

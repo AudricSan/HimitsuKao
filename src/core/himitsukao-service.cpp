@@ -64,4 +64,30 @@ bool HimitsukaoService::remove_person(const std::string &person_id)
 	return true;
 }
 
+void HimitsukaoService::set_style(Style style, int strength)
+{
+	runtime_.set_style(style, strength);
+	std::function<void()> listener;
+	{
+		std::lock_guard<std::mutex> lock(listener_mutex_);
+		listener = style_listener_;
+	}
+	if (listener)
+		listener();
+}
+
+void HimitsukaoService::set_style_listener(std::function<void()> listener)
+{
+	std::lock_guard<std::mutex> lock(listener_mutex_);
+	style_listener_ = std::move(listener);
+}
+
+bool HimitsukaoService::rename_person(const std::string &person_id, const std::string &name)
+{
+	if (!db_.rename(person_id, name))
+		return false;
+	db_.save();
+	return true;
+}
+
 } // namespace himitsukao

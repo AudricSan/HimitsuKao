@@ -74,7 +74,7 @@ public:
 	// Copy of the tracks as last published by process() (with later clear_person calls applied).
 	std::vector<Track> snapshot() const;
 	// Mask rectangles of the published tracks (known people skipped).
-	std::vector<Rect> masks(int64_t now_ms, int64_t hold_ms, float padding) const;
+	std::vector<Rect> masks(int64_t now_ms, int64_t hold_ms, float padding, bool include_known = false) const;
 
 private:
 	struct Request {

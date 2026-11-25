@@ -1,5 +1,5 @@
 // Step 4 tests (people database, identity manager, service). Included by test-main.cpp, which provides CHECK,
-// near() and the includes. Synthetic embeddings only: no real faces needed.
+// approx() and the includes. Synthetic embeddings only: no real faces needed.
 
 static Embedding synth_embedding(unsigned seed, float noise = 0.f, unsigned noise_seed = 0)
 {
@@ -36,7 +36,7 @@ static std::string read_text(const std::string &path)
 static void test_cosine()
 {
 	const Embedding a = synth_embedding(1);
-	CHECK(near(cosine_similarity(a, a), 1.f));
+	CHECK(approx(cosine_similarity(a, a), 1.f));
 	CHECK(std::fabs(cosine_similarity(a, synth_embedding(2))) < 0.4f);
 	CHECK(cosine_similarity(a, Embedding(5)) == 0.f);
 	CHECK(cosine_similarity(Embedding(), Embedding()) == 0.f);
@@ -314,7 +314,7 @@ static void test_masks_skip_recognised_tracks()
 	tr.tracks()[0].person_id = "abc";
 	const auto m = tr.masks(0, 300, 1.f);
 	CHECK(m.size() == 1);
-	CHECK(near(m[0].x, 0.1f));
+	CHECK(approx(m[0].x, 0.1f));
 	CHECK(masks_from_tracks(tr.tracks(), 0, 300, 1.f).size() == 1);
 }
 
@@ -387,8 +387,8 @@ static void test_recognizer_smoke()
 	float n = 0;
 	for (float x : e)
 		n += x * x;
-	CHECK(near(n, 1.f, 1e-3f));
-	CHECK(near(cosine_similarity(e, rec.embed_aligned(crop)), 1.f, 1e-3f)); // deterministic
+	CHECK(approx(n, 1.f, 1e-3f));
+	CHECK(approx(cosine_similarity(e, rec.embed_aligned(crop)), 1.f, 1e-3f)); // deterministic
 
 	// Full path: alignCrop from a YuNet-style row (pixel coordinates of the frame passed).
 	cv::Mat frame(480, 640, CV_8UC4);

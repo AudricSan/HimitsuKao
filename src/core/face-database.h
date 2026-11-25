@@ -60,6 +60,7 @@ public:
 	// False if the person is unknown. Oldest embeddings are dropped beyond kMaxEmbeddingsPerPerson.
 	bool add_embedding(const std::string &id, const Embedding &embedding);
 	bool remove(const std::string &id);
+	bool rename(const std::string &id, const std::string &new_name);
 	bool contains(const std::string &id) const;
 
 	std::vector<PersonInfo> list() const; // without embeddings

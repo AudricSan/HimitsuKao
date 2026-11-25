@@ -93,11 +93,12 @@ std::vector<int> FaceTracker::update(const std::vector<Rect> &detections, int64_
 	return assigned;
 }
 
-std::vector<Rect> masks_from_tracks(const std::vector<Track> &tracks, int64_t now_ms, int64_t hold_ms, float padding)
+std::vector<Rect> masks_from_tracks(const std::vector<Track> &tracks, int64_t now_ms, int64_t hold_ms, float padding,
+				    bool include_known)
 {
 	std::vector<Rect> out;
 	for (const Track &t : tracks) {
-		if (t.person_id.empty() && now_ms - t.last_seen_ms <= hold_ms)
+		if ((include_known || t.person_id.empty()) && now_ms - t.last_seen_ms <= hold_ms)
 			out.push_back(pad_rect(t.rect, padding));
 	}
 	return out;
