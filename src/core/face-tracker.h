@@ -27,9 +27,13 @@ struct Track {
 	// Identity of the person, empty = unknown. Filled by later steps (face recognition);
 	// known people will be skipped when masking.
 	std::string person_id;
+	std::string person_name;           // name of the recognised person, empty = unknown
+	std::string thumbnail_jpeg_b64;    // small JPEG of the latest face crop (live view)
+	int64_t thumbnail_ms = -1000000;   // when the thumbnail was last refreshed
+	int64_t last_identity_check_ms = -1; // last recognition attempt (-1 = never)
 };
 
-// Same as FaceTracker::masks() but on a plain list of tracks (e.g. a snapshot published to another thread).
+// Same as FaceTracker::masks() (known people are skipped) but on a plain list of tracks (e.g. a snapshot published to another thread).
 std::vector<Rect> masks_from_tracks(const std::vector<Track> &tracks, int64_t now_ms, int64_t hold_ms = 300,
 				    float padding = 1.3f);
 
@@ -48,7 +52,8 @@ public:
 	// Returns, for each detection (same order), the id of the track it was assigned to.
 	std::vector<int> update(const std::vector<Rect> &detections, int64_t now_ms);
 
-	// Rectangles to mask now: tracks seen within hold_ms, grown by `padding` (centered, clamped to 0..1).
+	// Rectangles to mask now: tracks seen within hold_ms and not recognised (empty person_id), grown by
+	// `padding` (centered, clamped to 0..1).
 	std::vector<Rect> masks(int64_t now_ms, int64_t hold_ms = 300, float padding = 1.3f) const;
 
 	const std::vector<Track> &tracks() const { return tracks_; }

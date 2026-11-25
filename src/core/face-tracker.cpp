@@ -97,7 +97,7 @@ std::vector<Rect> masks_from_tracks(const std::vector<Track> &tracks, int64_t no
 {
 	std::vector<Rect> out;
 	for (const Track &t : tracks) {
-		if (now_ms - t.last_seen_ms <= hold_ms)
+		if (t.person_id.empty() && now_ms - t.last_seen_ms <= hold_ms)
 			out.push_back(pad_rect(t.rect, padding));
 	}
 	return out;

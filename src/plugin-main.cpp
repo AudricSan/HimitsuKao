@@ -20,6 +20,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <plugin-support.h>
 
 #include "himitsukao-filter.h"
+#include "plugin-service.h"
 
 OBS_DECLARE_MODULE()
 OBS_MODULE_USE_DEFAULT_LOCALE(PLUGIN_NAME, "en-US")
@@ -31,6 +32,7 @@ MODULE_EXPORT const char *obs_module_description(void)
 
 bool obs_module_load(void)
 {
+	plugin_service_init();
 	register_himitsukao_filter();
 	obs_log(LOG_INFO, "plugin loaded successfully (version %s)", PLUGIN_VERSION);
 	return true;
@@ -38,5 +40,6 @@ bool obs_module_load(void)
 
 void obs_module_unload(void)
 {
+	plugin_service_shutdown();
 	obs_log(LOG_INFO, "plugin unloaded");
 }

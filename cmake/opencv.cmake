@@ -9,7 +9,9 @@ set(_ocv_root "${CMAKE_SOURCE_DIR}/.deps/opencv")
 set(_ocv_archive "${_ocv_root}/opencv-${HIMITSUKAO_OPENCV_VERSION}.zip")
 set(_ocv_source "${_ocv_root}/opencv-${HIMITSUKAO_OPENCV_VERSION}")
 set(_ocv_build "${_ocv_root}/build-${CMAKE_SYSTEM_PROCESSOR}")
-set(_ocv_install "${_ocv_root}/install-${CMAKE_SYSTEM_PROCESSOR}")
+# Bump the recipe number whenever the OpenCV options below change: it triggers a rebuild.
+set(_ocv_recipe 2)
+set(_ocv_install "${_ocv_root}/install-${CMAKE_SYSTEM_PROCESSOR}-r${_ocv_recipe}")
 
 file(GLOB_RECURSE _ocv_config_files "${_ocv_install}/OpenCVConfig.cmake")
 
@@ -34,7 +36,7 @@ if(NOT _ocv_config_files)
     file(ARCHIVE_EXTRACT INPUT "${_ocv_archive}" DESTINATION "${_ocv_root}")
   endif()
 
-  set(_ocv_modules core imgproc flann features2d calib3d dnn objdetect)
+  set(_ocv_modules core imgproc imgcodecs flann features2d calib3d dnn objdetect)
   list(JOIN _ocv_modules "," _ocv_build_list)
 
   set(
@@ -67,7 +69,15 @@ if(NOT _ocv_config_files)
     -DWITH_EIGEN=OFF
     -DWITH_LAPACK=OFF
     -DWITH_OPENEXR=OFF
-    -DWITH_JPEG=OFF
+    -DWITH_JPEG=ON
+    -DBUILD_JPEG=ON
+    -DWITH_GDAL=OFF
+    -DWITH_AVIF=OFF
+    -DWITH_SPNG=OFF
+    -DWITH_IMGCODEC_HDR=OFF
+    -DWITH_IMGCODEC_SUNRASTER=OFF
+    -DWITH_IMGCODEC_PXM=OFF
+    -DWITH_IMGCODEC_PFM=OFF
     -DWITH_PNG=OFF
     -DWITH_TIFF=OFF
     -DWITH_WEBP=OFF
@@ -114,10 +124,10 @@ endif()
 list(GET _ocv_config_files 0 _ocv_config_file)
 get_filename_component(OpenCV_DIR "${_ocv_config_file}" DIRECTORY)
 set(OpenCV_STATIC ON)
-find_package(OpenCV CONFIG REQUIRED COMPONENTS core imgproc dnn objdetect NO_DEFAULT_PATH)
+find_package(OpenCV CONFIG REQUIRED COMPONENTS core imgproc imgcodecs dnn objdetect NO_DEFAULT_PATH)
 
 # Only the Release flavour of OpenCV is built; use it for every configuration (same /MD runtime).
-foreach(_t opencv_core opencv_imgproc opencv_dnn opencv_objdetect opencv_calib3d opencv_features2d opencv_flann)
+foreach(_t opencv_core opencv_imgproc opencv_imgcodecs opencv_dnn opencv_objdetect opencv_calib3d opencv_features2d opencv_flann)
   if(TARGET ${_t})
     set_target_properties(
       ${_t}

@@ -29,11 +29,16 @@ the Free Software Foundation; either version 2 of the License, or
 #include <opencv2/core.hpp>
 
 #include "core/face-detector.h"
+#include "core/face-recognizer.h"
 #include "core/face-tracker.h"
+#include "core/identity-manager.h"
+#include "core/image-utils.h"
+#include "plugin-service.h"
 
 namespace {
 
 constexpr const char *kModelFile = "models/face_detection_yunet_2023mar.onnx";
+constexpr const char *kRecognizerModelFile = "models/face_recognition_sface_2021dec.onnx";
 constexpr const char *kEffectFile = "effects/pixelate.effect";
 constexpr uint32_t kAnalysisWidth = 640;
 
@@ -43,6 +48,8 @@ constexpr const char *kHoldMs = "hold_ms";
 constexpr const char *kPadding = "padding";
 constexpr const char *kBlockSize = "block_size";
 constexpr const char *kAnalysisFps = "analysis_fps";
+constexpr const char *kRecogThreshold = "recognition_threshold";
+constexpr const char *kRecheckMs = "recheck_ms";
 
 int64_t now_ms()
 {
@@ -64,6 +71,8 @@ struct himitsukao_filter {
 	std::atomic<float> padding{1.3f};
 	std::atomic<int> block_size{16};
 	std::atomic<int> analysis_fps{15};
+	std::atomic<float> recog_threshold{0.363f};
+	std::atomic<int> recheck_ms{1000};
 
 	// Graphics-thread only.
 	gs_effect_t *pixelate_effect = nullptr;
@@ -85,16 +94,11 @@ struct himitsukao_filter {
 	bool has_frame = false;
 	bool stop = false;
 
-	// Worker -> render thread: snapshot of the tracks.
-	std::mutex tracks_mutex;
-	std::vector<himitsukao::Track> tracks;
+	// Identity (recognition, enrollment) and the track snapshot shared with the render thread.
+	std::string recognizer_model_path;
+	std::unique_ptr<himitsukao::IdentityManager> identity;
+	std::string service_key;
 };
-
-void publish_tracks(himitsukao_filter *f, const himitsukao::FaceTracker &tracker)
-{
-	std::lock_guard<std::mutex> lock(f->tracks_mutex);
-	f->tracks = tracker.tracks();
-}
 
 void worker_main(himitsukao_filter *f)
 {
@@ -104,6 +108,15 @@ void worker_main(himitsukao_filter *f)
 	} catch (const std::exception &e) {
 		obs_log(LOG_ERROR, "cannot load the face detection model '%s': %s", f->model_path.c_str(), e.what());
 		return;
+	}
+
+	// Without the recognizer every face stays unknown, hence masked (fails closed).
+	std::unique_ptr<himitsukao::FaceRecognizer> recognizer;
+	try {
+		recognizer = std::make_unique<himitsukao::FaceRecognizer>(f->recognizer_model_path);
+	} catch (const std::exception &e) {
+		obs_log(LOG_ERROR, "cannot load the face recognition model '%s': %s (known people will be masked)",
+			f->recognizer_model_path.c_str(), e.what());
 	}
 
 	himitsukao::FaceTracker tracker;
@@ -132,8 +145,14 @@ void worker_main(himitsukao_filter *f)
 			rects.reserve(faces.size());
 			for (const auto &face : faces)
 				rects.push_back(face.rect);
-			tracker.update(rects, now_ms());
-			publish_tracks(f, tracker);
+			const int64_t now = now_ms();
+			const auto ids = tracker.update(rects, now);
+			f->identity->process(
+				tracker, ids, now,
+				[&](size_t i) {
+					return recognizer ? recognizer->embed(frame, faces[i]) : himitsukao::Embedding{};
+				},
+				[&](size_t i) { return himitsukao::face_thumbnail_b64(frame, faces[i].rect); });
 		} catch (const std::exception &e) {
 			if (++error_count <= 5)
 				obs_log(LOG_ERROR, "face detection failed: %s", e.what());
@@ -260,6 +279,14 @@ void filter_update(void *data, obs_data_t *settings)
 	f->padding = static_cast<float>(obs_data_get_double(settings, kPadding));
 	f->block_size = std::max(1, static_cast<int>(obs_data_get_int(settings, kBlockSize)));
 	f->analysis_fps = std::max(1, static_cast<int>(obs_data_get_int(settings, kAnalysisFps)));
+	f->recog_threshold = static_cast<float>(obs_data_get_double(settings, kRecogThreshold));
+	f->recheck_ms = std::max(100, static_cast<int>(obs_data_get_int(settings, kRecheckMs)));
+	if (f->identity) {
+		himitsukao::IdentityConfig cfg;
+		cfg.threshold = f->recog_threshold;
+		cfg.recheck_ms = f->recheck_ms;
+		f->identity->set_config(cfg);
+	}
 }
 
 void filter_get_defaults(obs_data_t *settings)
@@ -269,6 +296,8 @@ void filter_get_defaults(obs_data_t *settings)
 	obs_data_set_default_double(settings, kPadding, 1.3);
 	obs_data_set_default_int(settings, kBlockSize, 16);
 	obs_data_set_default_int(settings, kAnalysisFps, 15);
+	obs_data_set_default_double(settings, kRecogThreshold, 0.363);
+	obs_data_set_default_int(settings, kRecheckMs, 1000);
 }
 
 obs_properties_t *filter_get_properties(void *)
@@ -279,6 +308,8 @@ obs_properties_t *filter_get_properties(void *)
 	obs_properties_add_float_slider(props, kPadding, obs_module_text("MaskPadding"), 1.0, 2.0, 0.05);
 	obs_properties_add_int_slider(props, kBlockSize, obs_module_text("PixelBlockSize"), 4, 64, 1);
 	obs_properties_add_int_slider(props, kAnalysisFps, obs_module_text("AnalysisFps"), 5, 30, 1);
+	obs_properties_add_float_slider(props, kRecogThreshold, obs_module_text("RecognitionThreshold"), 0.2, 0.6, 0.01);
+	obs_properties_add_int_slider(props, kRecheckMs, obs_module_text("RecheckIntervalMs"), 200, 3000, 50);
 	return props;
 }
 
@@ -290,20 +321,39 @@ void *filter_create(obs_data_t *settings, obs_source_t *source)
 
 	load_pixelate_effect(f);
 
+	himitsukao::HimitsukaoService *service = plugin_service();
 	char *model = obs_module_file(kModelFile);
-	if (model) {
+	char *recognizer_model = obs_module_file(kRecognizerModelFile);
+	if (recognizer_model) {
+		f->recognizer_model_path = recognizer_model;
+		bfree(recognizer_model);
+	}
+	if (model && service) {
 		f->model_path = model;
-		bfree(model);
+		himitsukao::IdentityConfig cfg;
+		cfg.threshold = f->recog_threshold;
+		cfg.recheck_ms = f->recheck_ms;
+		f->identity = std::make_unique<himitsukao::IdentityManager>(
+			service->database(), service->board(), cfg,
+			[](const std::string &msg) { obs_log(LOG_WARNING, "%s", msg.c_str()); });
+		const char *name = obs_source_get_name(source);
+		f->service_key = service->register_instance(name ? name : "", f->identity.get());
 		f->worker = std::thread(worker_main, f);
 	} else {
 		obs_log(LOG_ERROR, "face detection model not found (%s): faces will NOT be masked", kModelFile);
 	}
+	bfree(model);
 	return f;
 }
 
 void filter_destroy(void *data)
 {
 	auto *f = static_cast<himitsukao_filter *>(data);
+	// Leave the service first: nobody may reach the identity manager once the worker stops.
+	if (!f->service_key.empty()) {
+		if (himitsukao::HimitsukaoService *service = plugin_service())
+			service->unregister_instance(f->service_key);
+	}
 	{
 		std::lock_guard<std::mutex> lock(f->frame_mutex);
 		f->stop = true;
@@ -414,12 +464,9 @@ void filter_video_render(void *data, gs_effect_t *)
 	}
 
 	// 3. Draw the frame, then the pixelated faces on top.
-	std::vector<himitsukao::Track> tracks;
-	{
-		std::lock_guard<std::mutex> lock(f->tracks_mutex);
-		tracks = f->tracks;
-	}
-	const auto masks = himitsukao::masks_from_tracks(tracks, now_ms(), f->hold_ms.load(), f->padding.load());
+	std::vector<himitsukao::Rect> masks;
+	if (f->identity)
+		masks = f->identity->masks(now_ms(), f->hold_ms.load(), f->padding.load());
 
 	gs_effect_t *def = obs_get_base_effect(OBS_EFFECT_DEFAULT);
 	gs_effect_set_texture(gs_effect_get_param_by_name(def, "image"), tex);

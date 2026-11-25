@@ -2,13 +2,23 @@
 #include <cmath>
 #include <cstdio>
 #include <exception>
+#include <filesystem>
+#include <fstream>
+#include <map>
+#include <random>
+#include <sstream>
 #include <functional>
 #include <string>
 #include <vector>
 
 #include <opencv2/core.hpp>
 
+#include "face-database.h"
 #include "face-detector.h"
+#include "face-recognizer.h"
+#include "himitsukao-service.h"
+#include "identity-manager.h"
+#include "image-utils.h"
 #include "face-tracker.h"
 
 using namespace himitsukao;
@@ -162,6 +172,8 @@ static void test_detector_smoke()
 #endif
 }
 
+#include "test-identity.inc"
+
 int main()
 {
 	struct T {
@@ -179,6 +191,19 @@ int main()
 		{"expiry", test_expiry},
 		{"padding", test_padding},
 		{"detector_smoke", test_detector_smoke},
+		{"cosine", test_cosine},
+		{"db_add_match_remove", test_db_add_match_remove},
+		{"db_save_load_session", test_db_save_load_session},
+		{"db_corrupt_file", test_db_corrupt_file},
+		{"recognition_sticks_and_unmasks", test_recognition_sticks_and_unmasks},
+		{"unknown_recheck_interval", test_unknown_recheck_interval},
+		{"enrollment_flow", test_enrollment_flow},
+		{"enrollment_saves_persistent_only", test_enrollment_saves_persistent_only},
+		{"enrollment_expiry", test_enrollment_expiry},
+		{"masks_skip_recognised_tracks", test_masks_skip_recognised_tracks},
+		{"service_remove_remasks_and_enroll", test_service_remove_remasks_and_enroll},
+		{"thumbnail", test_thumbnail},
+		{"recognizer_smoke", test_recognizer_smoke},
 	};
 	for (const auto &t : tests) {
 		const int before = g_failures;
