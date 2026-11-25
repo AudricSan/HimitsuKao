@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" width="160" alt="Logo HimitsuKao">
+</p>
+
 # HimitsuKao (秘密顔)
 
 An OBS Studio video filter for IRL streamers that **blurs every face that is not in your list of known people**, live, before the picture reaches your stream.
