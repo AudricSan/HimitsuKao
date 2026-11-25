@@ -10,7 +10,7 @@ set(_ocv_archive "${_ocv_root}/opencv-${HIMITSUKAO_OPENCV_VERSION}.zip")
 set(_ocv_source "${_ocv_root}/opencv-${HIMITSUKAO_OPENCV_VERSION}")
 set(_ocv_build "${_ocv_root}/build-${CMAKE_SYSTEM_PROCESSOR}")
 # Bump the recipe number whenever the OpenCV options below change: it triggers a rebuild.
-set(_ocv_recipe 3)
+set(_ocv_recipe 4)
 set(_ocv_install "${_ocv_root}/install-${CMAKE_SYSTEM_PROCESSOR}-r${_ocv_recipe}")
 
 file(GLOB_RECURSE _ocv_config_files "${_ocv_install}/OpenCVConfig.cmake")
@@ -21,8 +21,7 @@ if(NOT _ocv_config_files)
   if(NOT EXISTS "${_ocv_source}/CMakeLists.txt")
     if(NOT EXISTS "${_ocv_archive}")
       file(
-        DOWNLOAD "https://github.com/opencv/opencv/archive/refs/tags/${HIMITSUKAO_OPENCV_VERSION}.zip"
-        "${_ocv_archive}"
+        DOWNLOAD "https://github.com/opencv/opencv/archive/refs/tags/${HIMITSUKAO_OPENCV_VERSION}.zip" "${_ocv_archive}"
         SHOW_PROGRESS
         STATUS _ocv_dl
       )
@@ -97,7 +96,6 @@ if(NOT _ocv_config_files)
     -DWITH_DSHOW=OFF
     -DWITH_OBSENSOR=OFF
     -DWITH_ADE=OFF
-    -DCMAKE_INSTALL_PREFIX=${_ocv_install}
     -DCMAKE_POLICY_VERSION_MINIMUM=3.5
   )
 
@@ -109,41 +107,76 @@ if(NOT _ocv_config_files)
     list(APPEND _ocv_args -DCMAKE_BUILD_TYPE=Release)
   endif()
 
-  # macOS: the plugin is a universal binary, so OpenCV must be too. Architecture lists contain ';', so
-  # they go through an initial-cache script instead of the command line. Runtime SIMD dispatch is off
-  # because OpenCV's per-architecture dispatch does not support multi-architecture builds.
-  if(APPLE)
-    set(_ocv_archs "${CMAKE_OSX_ARCHITECTURES}")
-    if(NOT _ocv_archs)
-      set(_ocv_archs "${CMAKE_SYSTEM_PROCESSOR}")
-    endif()
-    set(_ocv_cache "${_ocv_root}/apple-cache.cmake")
-    file(
-      WRITE "${_ocv_cache}"
-      "set(CMAKE_OSX_ARCHITECTURES \"${_ocv_archs}\" CACHE STRING \"\")\n"
-      "set(CMAKE_OSX_DEPLOYMENT_TARGET \"${CMAKE_OSX_DEPLOYMENT_TARGET}\" CACHE STRING \"\")\n"
-      "set(CPU_BASELINE \"\" CACHE STRING \"\")\n"
-      "set(CPU_DISPATCH \"\" CACHE STRING \"\")\n"
-      "set(ENABLE_LIBJPEG_TURBO_SIMD OFF CACHE BOOL \"\")\n"
+  # Configures, builds and installs OpenCV into install_dir with the given extra arguments.
+  function(_hk_build_opencv build_dir install_dir)
+    execute_process(
+      COMMAND
+        "${CMAKE_COMMAND}" -S "${_ocv_source}" -B "${build_dir}" -G "${CMAKE_GENERATOR}" ${_ocv_platform} ${_ocv_args}
+        -DCMAKE_INSTALL_PREFIX=${install_dir} ${ARGN}
+      RESULT_VARIABLE _r
     )
-    list(APPEND _ocv_args -C "${_ocv_cache}")
-  endif()
+    if(NOT _r EQUAL 0)
+      message(FATAL_ERROR "OpenCV configure failed")
+    endif()
+    execute_process(
+      COMMAND "${CMAKE_COMMAND}" --build "${build_dir}" --config Release --target install --parallel
+      RESULT_VARIABLE _r
+    )
+    if(NOT _r EQUAL 0)
+      message(FATAL_ERROR "OpenCV build failed")
+    endif()
+  endfunction()
 
-  execute_process(
-    COMMAND
-      "${CMAKE_COMMAND}" -S "${_ocv_source}" -B "${_ocv_build}" -G "${CMAKE_GENERATOR}" ${_ocv_platform} ${_ocv_args}
-    RESULT_VARIABLE _ocv_result
-  )
-  if(NOT _ocv_result EQUAL 0)
-    message(FATAL_ERROR "OpenCV configure failed")
+  set(_ocv_archs "")
+  if(APPLE)
+    set(_ocv_archs ${CMAKE_OSX_ARCHITECTURES})
   endif()
+  list(LENGTH _ocv_archs _ocv_arch_count)
 
-  execute_process(
-    COMMAND "${CMAKE_COMMAND}" --build "${_ocv_build}" --config Release --target install --parallel
-    RESULT_VARIABLE _ocv_result
-  )
-  if(NOT _ocv_result EQUAL 0)
-    message(FATAL_ERROR "OpenCV build failed")
+  if(_ocv_arch_count GREATER 1)
+    # macOS universal plugin: OpenCV's SIMD dispatch breaks in a single multi-architecture build, so build
+    # it once per architecture and merge the static libraries with lipo. The first architecture's install
+    # tree (headers, CMake package) is the base of the universal one.
+    set(_ocv_thin_installs "")
+    foreach(_arch IN LISTS _ocv_archs)
+      set(_thin_install "${_ocv_root}/install-${_arch}-r${_ocv_recipe}")
+      _hk_build_opencv(
+        "${_ocv_root}/build-${_arch}-only"
+        "${_thin_install}"
+        -DCMAKE_OSX_ARCHITECTURES=${_arch}
+        -DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}
+      )
+      list(APPEND _ocv_thin_installs "${_thin_install}")
+    endforeach()
+
+    list(GET _ocv_thin_installs 0 _ocv_base)
+    file(REMOVE_RECURSE "${_ocv_install}")
+    file(COPY "${_ocv_base}/" DESTINATION "${_ocv_install}")
+    file(GLOB_RECURSE _ocv_libs RELATIVE "${_ocv_install}" "${_ocv_install}/*.a")
+    foreach(_lib IN LISTS _ocv_libs)
+      set(_inputs "")
+      foreach(_thin IN LISTS _ocv_thin_installs)
+        if(EXISTS "${_thin}/${_lib}")
+          list(APPEND _inputs "${_thin}/${_lib}")
+        endif()
+      endforeach()
+      execute_process(
+        COMMAND lipo -create ${_inputs} -output "${_ocv_install}/${_lib}"
+        RESULT_VARIABLE _ocv_result
+      )
+      if(NOT _ocv_result EQUAL 0)
+        message(FATAL_ERROR "lipo failed on ${_lib}")
+      endif()
+    endforeach()
+  else()
+    set(_ocv_apple_args "")
+    if(APPLE)
+      list(APPEND _ocv_apple_args -DCMAKE_OSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET})
+      if(_ocv_archs)
+        list(APPEND _ocv_apple_args -DCMAKE_OSX_ARCHITECTURES=${_ocv_archs})
+      endif()
+    endif()
+    _hk_build_opencv("${_ocv_build}" "${_ocv_install}" ${_ocv_apple_args})
   endif()
 
   file(GLOB_RECURSE _ocv_config_files "${_ocv_install}/OpenCVConfig.cmake")
