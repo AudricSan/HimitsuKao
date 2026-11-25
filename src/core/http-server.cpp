@@ -35,7 +35,9 @@ bool HttpServer::start(const std::string &host, int port, std::string *error)
 		setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const void *>(&opt), sizeof(opt));
 #endif
 	});
-	server->new_task_queue = [] { return new httplib::ThreadPool(4, 16); };
+	server->new_task_queue = [] {
+		return new httplib::ThreadPool(4, 16);
+	};
 
 	ApiHandler *api = &api_;
 	auto handler = [api](const httplib::Request &req, httplib::Response &res) {

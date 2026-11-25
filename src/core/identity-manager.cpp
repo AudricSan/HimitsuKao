@@ -87,7 +87,10 @@ void clear_identity(Track &t)
 } // namespace
 
 IdentityManager::IdentityManager(FaceDatabase &db, EnrollmentBoard &board, IdentityConfig config, LogFn log)
-	: db_(db), board_(board), config_(config), log_(std::move(log))
+	: db_(db),
+	  board_(board),
+	  config_(config),
+	  log_(std::move(log))
 {
 }
 
@@ -103,8 +106,7 @@ void IdentityManager::set_config(const IdentityConfig &config)
 	config_ = config;
 }
 
-void IdentityManager::request_enroll(const std::string &request_id, int track_id, const std::string &name,
-				     bool session)
+void IdentityManager::request_enroll(const std::string &request_id, int track_id, const std::string &name, bool session)
 {
 	Request r;
 	r.request_id = request_id;
@@ -188,9 +190,8 @@ void IdentityManager::publish(FaceTracker &tracker)
 	snapshot_ = tracker.tracks();
 }
 
-bool IdentityManager::handle_request(Request &req, FaceTracker &tracker, const std::vector<int> &ids,
-				     int64_t now_ms, const IdentityConfig &cfg, const EmbedFn &embed,
-				     const ThumbFn &thumb)
+bool IdentityManager::handle_request(Request &req, FaceTracker &tracker, const std::vector<int> &ids, int64_t now_ms,
+				     const IdentityConfig &cfg, const EmbedFn &embed, const ThumbFn &thumb)
 {
 	if (req.created_ms < 0) {
 		req.created_ms = now_ms;
@@ -248,7 +249,8 @@ bool IdentityManager::handle_request(Request &req, FaceTracker &tracker, const s
 
 	// The person exists: gather a few more embeddings from later frames of the same track.
 	bool finished = false;
-	if (di >= 0 && req.extra < cfg.enroll_extra_embeddings && now_ms - req.last_embedding_ms >= cfg.enroll_spacing_ms) {
+	if (di >= 0 && req.extra < cfg.enroll_extra_embeddings &&
+	    now_ms - req.last_embedding_ms >= cfg.enroll_spacing_ms) {
 		const Embedding emb = safe_embed(di);
 		if (!emb.empty()) {
 			if (!db_.add_embedding(req.person_id, emb))
@@ -265,8 +267,8 @@ bool IdentityManager::handle_request(Request &req, FaceTracker &tracker, const s
 	return finished;
 }
 
-void IdentityManager::process(FaceTracker &tracker, const std::vector<int> &ids, int64_t now_ms,
-			      const EmbedFn &embed, const ThumbFn &thumb)
+void IdentityManager::process(FaceTracker &tracker, const std::vector<int> &ids, int64_t now_ms, const EmbedFn &embed,
+			      const ThumbFn &thumb)
 {
 	IdentityConfig cfg;
 	std::set<std::string> clears;
@@ -288,7 +290,8 @@ void IdentityManager::process(FaceTracker &tracker, const std::vector<int> &ids,
 	// 1. Enrollments
 	active_.erase(std::remove_if(active_.begin(), active_.end(),
 				     [&](Request &r) {
-					     const bool finished = handle_request(r, tracker, ids, now_ms, cfg, embed, thumb);
+					     const bool finished =
+						     handle_request(r, tracker, ids, now_ms, cfg, embed, thumb);
 					     if (finished) {
 						     --pending_;
 						     std::lock_guard<std::mutex> state_lock(state_mutex_);

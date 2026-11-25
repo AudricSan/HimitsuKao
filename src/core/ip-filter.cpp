@@ -159,7 +159,8 @@ bool is_acceptable_host_header(const std::string &host)
 			return false;
 	}
 	if (!port.empty()) {
-		if (port.size() > 5 || !std::all_of(port.begin(), port.end(), [](unsigned char c) { return std::isdigit(c) != 0; }))
+		if (port.size() > 5 ||
+		    !std::all_of(port.begin(), port.end(), [](unsigned char c) { return std::isdigit(c) != 0; }))
 			return false;
 	}
 	return true;

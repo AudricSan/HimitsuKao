@@ -133,7 +133,8 @@ AuthResult CodeAuthenticator::check(const std::string &ip, const std::string &su
 	Entry &e = it->second;
 	e.last_activity_ms = now_ms;
 	if (++e.failures >= limits_.max_failures) {
-		e.locked_until_ms = now_ms + limits_.lock_ms; // this attempt is still a plain "denied"; the next ones are locked
+		e.locked_until_ms =
+			now_ms + limits_.lock_ms; // this attempt is still a plain "denied"; the next ones are locked
 		e.failures = 0;
 	}
 

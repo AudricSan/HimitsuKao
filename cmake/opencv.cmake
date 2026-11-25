@@ -21,8 +21,7 @@ if(NOT _ocv_config_files)
   if(NOT EXISTS "${_ocv_source}/CMakeLists.txt")
     if(NOT EXISTS "${_ocv_archive}")
       file(
-        DOWNLOAD
-        "https://github.com/opencv/opencv/archive/refs/tags/${HIMITSUKAO_OPENCV_VERSION}.zip"
+        DOWNLOAD "https://github.com/opencv/opencv/archive/refs/tags/${HIMITSUKAO_OPENCV_VERSION}.zip"
         "${_ocv_archive}"
         SHOW_PROGRESS
         STATUS _ocv_dl
@@ -36,7 +35,17 @@ if(NOT _ocv_config_files)
     file(ARCHIVE_EXTRACT INPUT "${_ocv_archive}" DESTINATION "${_ocv_root}")
   endif()
 
-  set(_ocv_modules core imgproc imgcodecs flann features2d calib3d dnn objdetect)
+  set(
+    _ocv_modules
+    core
+    imgproc
+    imgcodecs
+    flann
+    features2d
+    calib3d
+    dnn
+    objdetect
+  )
   list(JOIN _ocv_modules "," _ocv_build_list)
 
   set(
@@ -122,8 +131,7 @@ if(NOT _ocv_config_files)
 
   execute_process(
     COMMAND
-      "${CMAKE_COMMAND}" -S "${_ocv_source}" -B "${_ocv_build}" -G "${CMAKE_GENERATOR}" ${_ocv_platform}
-      ${_ocv_args}
+      "${CMAKE_COMMAND}" -S "${_ocv_source}" -B "${_ocv_build}" -G "${CMAKE_GENERATOR}" ${_ocv_platform} ${_ocv_args}
     RESULT_VARIABLE _ocv_result
   )
   if(NOT _ocv_result EQUAL 0)
@@ -144,10 +152,26 @@ endif()
 list(GET _ocv_config_files 0 _ocv_config_file)
 get_filename_component(OpenCV_DIR "${_ocv_config_file}" DIRECTORY)
 set(OpenCV_STATIC ON)
-find_package(OpenCV CONFIG REQUIRED COMPONENTS core imgproc imgcodecs dnn objdetect NO_DEFAULT_PATH)
+find_package(
+  OpenCV
+  CONFIG
+  REQUIRED
+  COMPONENTS core imgproc imgcodecs dnn objdetect
+  NO_DEFAULT_PATH
+)
 
 # Only the Release flavour of OpenCV is built; use it for every configuration (same /MD runtime).
-foreach(_t opencv_core opencv_imgproc opencv_imgcodecs opencv_dnn opencv_objdetect opencv_calib3d opencv_features2d opencv_flann)
+foreach(
+  _t
+  opencv_core
+  opencv_imgproc
+  opencv_imgcodecs
+  opencv_dnn
+  opencv_objdetect
+  opencv_calib3d
+  opencv_features2d
+  opencv_flann
+)
   if(TARGET ${_t})
     set_target_properties(
       ${_t}

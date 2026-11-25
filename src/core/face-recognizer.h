@@ -11,7 +11,6 @@
 
 namespace himitsukao {
 
-
 // Wrapper around cv::FaceRecognizerSF (SFace). Not thread-safe.
 class FaceRecognizer {
 public:

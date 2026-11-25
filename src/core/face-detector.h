@@ -17,7 +17,7 @@ struct Face {
 	// Landmarks: right eye, left eye, nose tip, right mouth corner, left mouth corner.
 	std::array<std::array<float, 2>, 5> landmarks{};    // normalized 0..1
 	std::array<std::array<float, 2>, 5> landmarks_px{}; // pixels of the analysed image
-	cv::Mat raw;                                        // 1x15 YuNet row (pixels), as FaceRecognizerSF::alignCrop expects
+	cv::Mat raw; // 1x15 YuNet row (pixels), as FaceRecognizerSF::alignCrop expects
 };
 
 // Thin wrapper around cv::FaceDetectorYN (YuNet). Not thread-safe.

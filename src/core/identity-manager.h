@@ -58,11 +58,11 @@ private:
 };
 
 struct IdentityConfig {
-	float threshold = 0.363f;          // cosine similarity needed to recognise someone
-	int64_t recheck_ms = 1000;         // delay between two recognition attempts on an unknown track
-	int64_t enroll_expiry_ms = 3000;   // an enrollment fails / stops if its track yields nothing for this long
-	int64_t enroll_spacing_ms = 150;   // minimum delay between two embeddings of the same enrollment
-	int enroll_extra_embeddings = 4;   // embeddings added after the first one
+	float threshold = 0.363f;        // cosine similarity needed to recognise someone
+	int64_t recheck_ms = 1000;       // delay between two recognition attempts on an unknown track
+	int64_t enroll_expiry_ms = 3000; // an enrollment fails / stops if its track yields nothing for this long
+	int64_t enroll_spacing_ms = 150; // minimum delay between two embeddings of the same enrollment
+	int enroll_extra_embeddings = 4; // embeddings added after the first one
 	int64_t thumbnail_refresh_ms = 1000;
 };
 

@@ -61,7 +61,8 @@ int main(int argc, char **argv)
 	auto t0 = std::chrono::steady_clock::now();
 	auto now_ms = [t0] {
 		return static_cast<int64_t>(
-			std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count());
+			std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0)
+				.count());
 	};
 
 	HimitsukaoService service;

@@ -68,8 +68,11 @@ LoadResult ServerConfig::load(const std::string &path)
 
 bool ServerConfig::save(const std::string &path) const
 {
-	const json root = {{"enabled", enabled}, {"port", port},         {"code", code},
-			   {"style", style_name(style)}, {"strength", strength}};
+	const json root = {{"enabled", enabled},
+			   {"port", port},
+			   {"code", code},
+			   {"style", style_name(style)},
+			   {"strength", strength}};
 	const fs::path p = fs::u8path(path);
 	fs::path tmp = p;
 	tmp += ".tmp";

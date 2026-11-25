@@ -171,7 +171,8 @@ void worker_main(himitsukao_filter *f)
 			f->identity->process(
 				tracker, ids, now,
 				[&](size_t i) {
-					return recognizer ? recognizer->embed(frame, faces[i]) : himitsukao::Embedding{};
+					return recognizer ? recognizer->embed(frame, faces[i])
+							  : himitsukao::Embedding{};
 				},
 				[&](size_t i) { return himitsukao::face_thumbnail_b64(frame, faces[i].rect); });
 		} catch (const std::exception &e) {
@@ -328,8 +329,8 @@ void apply_settings(himitsukao_filter *f, obs_data_t *settings, bool push_global
 			service->set_mode(mode);
 
 		himitsukao::Style style;
-		if ((style_s != f->seen.style || strength != f->seen.strength) && himitsukao::parse_style(style_s, style) &&
-		    strength >= 1)
+		if ((style_s != f->seen.style || strength != f->seen.strength) &&
+		    himitsukao::parse_style(style_s, style) && strength >= 1)
 			service->set_style(style, strength);
 
 		if (port != f->seen.port && port >= 1024 && port <= 65535)
@@ -379,8 +380,9 @@ std::string server_info_text()
 	std::string text = std::string(obs_module_text("PhoneAddresses")) + ":" + (urls.empty() ? " -" : urls);
 	const bool show = g_show_code.load();
 	text += std::string("\n") + obs_module_text("PhoneCode") + ": " +
-		(show ? info.code : std::string("\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2"
-						"\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2"));
+		(show ? info.code
+		      : std::string("\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2"
+				    "\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2"));
 	if (show) {
 		for (const auto &ip : info.addresses)
 			text += std::string("\n") + obs_module_text("PhoneOneTap") + ": http://" + ip + ":" +
@@ -458,14 +460,16 @@ obs_properties_t *filter_get_properties(void *data)
 	obs_property_list_add_string(mode, obs_module_text("ModeOff"), "off");
 
 	obs_properties_add_bool(props, kDebugBoxes, obs_module_text("ShowDetectionBoxes"));
-	obs_property_t *debug_info = obs_properties_add_text(props, kDebugInfo, obs_module_text("DebugBoxesWarning"), OBS_TEXT_INFO);
+	obs_property_t *debug_info =
+		obs_properties_add_text(props, kDebugInfo, obs_module_text("DebugBoxesWarning"), OBS_TEXT_INFO);
 	obs_property_text_set_info_type(debug_info, OBS_TEXT_INFO_WARNING);
 
 	obs_properties_add_float_slider(props, kThreshold, obs_module_text("DetectionThreshold"), 0.2, 0.9, 0.05);
 	obs_properties_add_int_slider(props, kHoldMs, obs_module_text("MaskHoldMs"), 0, 1000, 10);
 	obs_properties_add_float_slider(props, kPadding, obs_module_text("MaskPadding"), 1.0, 2.0, 0.05);
 	obs_properties_add_int_slider(props, kAnalysisFps, obs_module_text("AnalysisFps"), 5, 30, 1);
-	obs_properties_add_float_slider(props, kRecogThreshold, obs_module_text("RecognitionThreshold"), 0.2, 0.6, 0.01);
+	obs_properties_add_float_slider(props, kRecogThreshold, obs_module_text("RecognitionThreshold"), 0.2, 0.6,
+					0.01);
 	obs_properties_add_int_slider(props, kRecheckMs, obs_module_text("RecheckIntervalMs"), 200, 3000, 50);
 
 	obs_property_t *style = obs_properties_add_list(props, kStyle, obs_module_text("MaskStyle"),
@@ -669,7 +673,8 @@ void draw_debug_boxes(const std::vector<himitsukao::DebugBox> &boxes, uint32_t w
 {
 	if (boxes.empty())
 		return;
-	const int thickness = std::max(2, static_cast<int>(std::lround(3.0f * std::max(1.0f, static_cast<float>(h) / 1080.0f))));
+	const int thickness =
+		std::max(2, static_cast<int>(std::lround(3.0f * std::max(1.0f, static_cast<float>(h) / 1080.0f))));
 	gs_effect_t *solid = obs_get_base_effect(OBS_EFFECT_SOLID);
 	gs_eparam_t *color_param = gs_effect_get_param_by_name(solid, "color");
 	auto fill = [&](uint32_t x, uint32_t y, uint32_t cw, uint32_t ch) {
@@ -703,9 +708,9 @@ void draw_debug_boxes(const std::vector<himitsukao::DebugBox> &boxes, uint32_t w
 		const uint32_t rw = r.x1 - r.x0;
 		const uint32_t rh = r.y1 - r.y0;
 		const uint32_t t = std::min<uint32_t>(static_cast<uint32_t>(thickness), std::min(rw, rh) / 2 + 1);
-		fill(r.x0, r.y0, rw, t);                   // top
+		fill(r.x0, r.y0, rw, t);                       // top
 		fill(r.x0, r.y1 > t ? r.y1 - t : r.y0, rw, t); // bottom
-		fill(r.x0, r.y0, t, rh);                   // left
+		fill(r.x0, r.y0, t, rh);                       // left
 		fill(r.x1 > t ? r.x1 - t : r.x0, r.y0, t, rh); // right
 	}
 }

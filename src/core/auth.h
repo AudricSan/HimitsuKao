@@ -50,7 +50,8 @@ public:
 
 	// `is_loopback`: loopback clients are exempt from the global lock and from the global failure count.
 	// A missing code (empty) is Denied but is not counted as a failure (the page has not asked yet).
-	AuthResult check(const std::string &ip, const std::string &supplied_code, int64_t now_ms, bool is_loopback = false);
+	AuthResult check(const std::string &ip, const std::string &supplied_code, int64_t now_ms,
+			 bool is_loopback = false);
 	// Remaining lock time for this IP (0 if not locked), including the global lock.
 	int64_t retry_after_ms(const std::string &ip, int64_t now_ms) const;
 	// True exactly once each time the global lock is triggered (so the caller logs one warning).

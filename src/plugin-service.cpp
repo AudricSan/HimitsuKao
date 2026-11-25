@@ -61,11 +61,12 @@ struct PluginRuntime {
 				std::string error;
 				if (server->start(want.host, c.port, &error)) {
 					active_host = want.host;
-					obs_log(LOG_INFO, "HimitsuKao server listening on %s:%d (%s)", want.host.c_str(),
-						server->port(),
+					obs_log(LOG_INFO, "HimitsuKao server listening on %s:%d (%s)",
+						want.host.c_str(), server->port(),
 						c.enabled ? "phone page enabled" : "OBS dock only");
 				} else {
-					obs_log(LOG_ERROR, "HimitsuKao server not started: %s. Masking keeps working without it.",
+					obs_log(LOG_ERROR,
+						"HimitsuKao server not started: %s. Masking keeps working without it.",
 						error.c_str());
 				}
 				changed = true;

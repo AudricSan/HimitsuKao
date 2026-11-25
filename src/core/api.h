@@ -23,8 +23,8 @@ struct ApiResponse {
 	int status = 200;
 	std::string content_type = "application/json";
 	std::string body;
-	bool no_store = false;   // Cache-Control: no-store
-	int retry_after_s = 0;   // Retry-After for 429
+	bool no_store = false; // Cache-Control: no-store
+	int retry_after_s = 0; // Retry-After for 429
 };
 
 constexpr size_t kMaxBodyBytes = 4096;
@@ -37,7 +37,8 @@ public:
 	using Clock = std::function<int64_t()>; // same time base as the tracker timestamps (milliseconds)
 	using LogFn = std::function<void(const std::string &)>; // warnings (never contains the access code)
 
-	ApiHandler(HimitsukaoService &service, std::string index_html, std::string code, Clock clock, LogFn log = nullptr);
+	ApiHandler(HimitsukaoService &service, std::string index_html, std::string code, Clock clock,
+		   LogFn log = nullptr);
 
 	ApiResponse handle(const ApiRequest &request);
 

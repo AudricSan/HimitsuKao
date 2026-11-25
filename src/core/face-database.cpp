@@ -116,8 +116,9 @@ LoadResult FaceDatabase::load(const std::string &path)
 		bad += ".bad";
 		std::error_code cec;
 		fs::copy_file(p, bad, fs::copy_options::overwrite_existing, cec);
-		result.message = std::string("database file is corrupt (") + e.what() + "), starting empty; backup: " +
-				 bad.u8string() + (cec ? " (backup FAILED: " + cec.message() + ")" : "");
+		result.message = std::string("database file is corrupt (") + e.what() +
+				 "), starting empty; backup: " + bad.u8string() +
+				 (cec ? " (backup FAILED: " + cec.message() + ")" : "");
 	}
 	return result;
 }
@@ -204,7 +205,8 @@ bool FaceDatabase::add_embedding(const std::string &id, const Embedding &embeddi
 bool FaceDatabase::remove(const std::string &id)
 {
 	std::lock_guard<std::mutex> lock(mutex_);
-	const auto it = std::remove_if(people_.begin(), people_.end(), [&](const Person &p) { return p.info.id == id; });
+	const auto it =
+		std::remove_if(people_.begin(), people_.end(), [&](const Person &p) { return p.info.id == id; });
 	if (it == people_.end())
 		return false;
 	people_.erase(it, people_.end());

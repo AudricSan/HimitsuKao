@@ -27,9 +27,9 @@ struct Track {
 	// Identity of the person, empty = unknown. Filled by later steps (face recognition);
 	// known people will be skipped when masking.
 	std::string person_id;
-	std::string person_name;           // name of the recognised person, empty = unknown
-	std::string thumbnail_jpeg_b64;    // small JPEG of the latest face crop (live view)
-	int64_t thumbnail_ms = -1000000;   // when the thumbnail was last refreshed
+	std::string person_name;             // name of the recognised person, empty = unknown
+	std::string thumbnail_jpeg_b64;      // small JPEG of the latest face crop (live view)
+	int64_t thumbnail_ms = -1000000;     // when the thumbnail was last refreshed
 	int64_t last_identity_check_ms = -1; // last recognition attempt (-1 = never)
 };
 

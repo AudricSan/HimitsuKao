@@ -93,7 +93,11 @@ bool normalize_person_name(const std::string &raw, std::string &out)
 }
 
 ApiHandler::ApiHandler(HimitsukaoService &service, std::string index_html, std::string code, Clock clock, LogFn log)
-	: service_(service), index_html_(std::move(index_html)), auth_(std::move(code)), log_(std::move(log)), clock_(std::move(clock))
+	: service_(service),
+	  index_html_(std::move(index_html)),
+	  auth_(std::move(code)),
+	  log_(std::move(log)),
+	  clock_(std::move(clock))
 {
 }
 
@@ -202,7 +206,8 @@ ApiResponse ApiHandler::handle_api(const ApiRequest &req)
 					     body["session"].get<bool>();
 			EnrollError enroll_error = EnrollError::None;
 			const std::string id = service_.enroll(body["instance"].get<std::string>(),
-							       body["track_id"].get<int>(), name, session, &enroll_error);
+							       body["track_id"].get<int>(), name, session,
+							       &enroll_error);
 			if (enroll_error == EnrollError::Busy) {
 				ApiResponse busy = error_response(429, "too many enrollments in progress");
 				busy.retry_after_s = 2;
