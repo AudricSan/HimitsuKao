@@ -4,9 +4,21 @@ An OBS Studio video filter for IRL streamers that **blurs every face that is not
 
 You manage the list from your phone during the live: tap a face that is on screen right now to mark that person as known, swipe them away to blur them again.
 
-> Status: early development (v0.1.0). Not ready for use yet.
+> Status: first public version (0.1.0). Test it on a recording before relying on it during a live.
 
-## Planned features
+## Installation
+
+Download the package for your system from the [latest release](https://github.com/AudricSan/HimitsuKao/releases/latest):
+
+- **Windows:** close OBS and unzip the archive into `C:\ProgramData\obs-studio\plugins\` (you get a `himitsukao` folder there).
+- **macOS:** open the `.pkg`.
+- **Linux (Ubuntu):** install the `.deb`.
+
+Then, in OBS, add the **HimitsuKao** filter to your camera or media source (*Filters*, then *Effect Filters*), open the *HimitsuKao* dock from the *Docks* menu and tap the faces of the people who may stay visible.
+
+Requires OBS Studio 31 or later, 64-bit.
+
+## Features
 
 - Face detection (YuNet) and face recognition (SFace) running on the CPU through OpenCV, with no GPU or CUDA required.
 - Face tracking, so a recognised person stays visible while they move.

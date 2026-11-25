@@ -139,7 +139,7 @@ if(NOT _ocv_config_files)
     # tree (headers, CMake package) is the base of the universal one.
     set(_ocv_thin_installs "")
     foreach(_arch IN LISTS _ocv_archs)
-      set(_thin_install "${_ocv_root}/install-${_arch}-r${_ocv_recipe}")
+      set(_thin_install "${_ocv_root}/thin-${_arch}-r${_ocv_recipe}")
       _hk_build_opencv(
         "${_ocv_root}/build-${_arch}-only"
         "${_thin_install}"
