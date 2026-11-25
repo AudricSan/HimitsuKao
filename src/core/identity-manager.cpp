@@ -112,6 +112,7 @@ void IdentityManager::request_enroll(const std::string &request_id, int track_id
 	r.name = name;
 	r.session = session;
 	std::lock_guard<std::mutex> lock(state_mutex_);
+	pending_tracks_.insert(r.track_id);
 	incoming_.push_back(std::move(r));
 	++pending_;
 }
@@ -139,6 +140,34 @@ std::vector<Rect> IdentityManager::masks(int64_t now_ms, int64_t hold_ms, float 
 {
 	std::lock_guard<std::mutex> lock(snapshot_mutex_);
 	return masks_from_tracks(snapshot_, now_ms, hold_ms, padding, include_known);
+}
+
+BoxColor box_color_for(const Track &track, bool enrolling)
+{
+	if (!track.person_id.empty())
+		return BoxColor::Green;
+	return enrolling ? BoxColor::Orange : BoxColor::Red;
+}
+
+std::vector<DebugBox> IdentityManager::debug_boxes(int64_t now_ms, int64_t hold_ms, float padding) const
+{
+	std::vector<Track> tracks;
+	{
+		std::lock_guard<std::mutex> lock(snapshot_mutex_);
+		tracks = snapshot_;
+	}
+	std::multiset<int> pending;
+	{
+		std::lock_guard<std::mutex> lock(state_mutex_);
+		pending = pending_tracks_;
+	}
+	std::vector<DebugBox> out;
+	for (const Track &t : tracks) {
+		if (now_ms - t.last_seen_ms > hold_ms)
+			continue;
+		out.push_back(DebugBox{t.id, pad_rect(t.rect, padding), box_color_for(t, pending.count(t.id) > 0)});
+	}
+	return out;
 }
 
 void IdentityManager::publish(FaceTracker &tracker)
@@ -260,8 +289,13 @@ void IdentityManager::process(FaceTracker &tracker, const std::vector<int> &ids,
 	active_.erase(std::remove_if(active_.begin(), active_.end(),
 				     [&](Request &r) {
 					     const bool finished = handle_request(r, tracker, ids, now_ms, cfg, embed, thumb);
-					     if (finished)
+					     if (finished) {
 						     --pending_;
+						     std::lock_guard<std::mutex> state_lock(state_mutex_);
+						     const auto it = pending_tracks_.find(r.track_id);
+						     if (it != pending_tracks_.end())
+							     pending_tracks_.erase(it);
+					     }
 					     return finished;
 				     }),
 		      active_.end());

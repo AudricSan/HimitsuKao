@@ -11,7 +11,9 @@
 #include "core/api.h"
 #include "core/auth.h"
 #include "core/http-server.h"
+#include "core/server-binding.h"
 #include "core/server-config.h"
+#include "dock.h"
 #include "net-info.h"
 #include "web-index.h" // generated from src/web/index.html at configure time
 
@@ -27,6 +29,7 @@ struct PluginRuntime {
 	std::mutex server_mutex; // serialises start/stop of the server
 	std::unique_ptr<himitsukao::ApiHandler> api;
 	std::unique_ptr<himitsukao::HttpServer> server;
+	std::string active_host; // host the running server is bound to
 
 	void save_config_locked()
 	{
@@ -40,23 +43,36 @@ struct PluginRuntime {
 		return config;
 	}
 
-	// Makes the server match the config: enabled -> listening on the configured port, otherwise nothing listens.
+	// Makes the server match the config (see decide_server_binding): phone page enabled -> all interfaces, disabled ->
+	// loopback only (for the OBS dock). Rebinds when the host or the port changed.
 	void apply_server_state()
 	{
 		const himitsukao::ServerConfig c = config_copy();
-		std::lock_guard<std::mutex> lock(server_mutex);
-		if (server->running() && (!c.enabled || server->port() != c.port)) {
-			server->stop();
-			obs_log(LOG_INFO, "phone page server stopped");
+		const himitsukao::ServerBinding want = himitsukao::decide_server_binding(c.enabled, kDockAvailable);
+		bool changed = false;
+		{
+			std::lock_guard<std::mutex> lock(server_mutex);
+			if (server->running() && (!want.run || server->port() != c.port || active_host != want.host)) {
+				server->stop();
+				obs_log(LOG_INFO, "HimitsuKao server stopped");
+				changed = true;
+			}
+			if (want.run && !server->running()) {
+				std::string error;
+				if (server->start(want.host, c.port, &error)) {
+					active_host = want.host;
+					obs_log(LOG_INFO, "HimitsuKao server listening on %s:%d (%s)", want.host.c_str(),
+						server->port(),
+						c.enabled ? "phone page enabled" : "OBS dock only");
+				} else {
+					obs_log(LOG_ERROR, "HimitsuKao server not started: %s. Masking keeps working without it.",
+						error.c_str());
+				}
+				changed = true;
+			}
 		}
-		if (c.enabled && !server->running()) {
-			std::string error;
-			if (server->start("0.0.0.0", c.port, &error))
-				obs_log(LOG_INFO, "phone page server listening on port %d", server->port());
-			else
-				obs_log(LOG_ERROR, "phone page server not started: %s. Masking keeps working without it.",
-					error.c_str());
-		}
+		if (changed)
+			dock_refresh_url();
 	}
 };
 
@@ -117,10 +133,9 @@ void plugin_service_init()
 		rt.service, std::string(reinterpret_cast<const char *>(kWebIndexHtml), kWebIndexHtmlSize),
 		rt.config.code, clock_ms, [](const std::string &msg) { obs_log(LOG_WARNING, "%s", msg.c_str()); });
 	rt.server = std::make_unique<himitsukao::HttpServer>(*rt.api);
-	if (rt.config.enabled)
-		rt.apply_server_state();
-	else
-		obs_log(LOG_INFO, "phone page is disabled (enable it in the HimitsuKao filter properties)");
+	rt.apply_server_state();
+	if (!rt.config.enabled)
+		obs_log(LOG_INFO, "phone page is disabled: only the OBS dock on this PC can reach the server");
 }
 
 void plugin_service_shutdown()
@@ -165,6 +180,7 @@ std::string plugin_regenerate_code()
 		g_runtime->save_config_locked();
 	}
 	g_runtime->api->set_code(code);
+	dock_refresh_url();
 	return code;
 }
 

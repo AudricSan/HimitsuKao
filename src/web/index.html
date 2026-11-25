@@ -72,6 +72,23 @@ details[open] summary::after { content: "\25B4"; }
 .slider input { flex: 1; height: 40px; accent-color: var(--accent); }
 .slider output { width: 38px; text-align: right; font-variant-numeric: tabular-nums; }
 
+/* Compact layout when embedded in the OBS dock (narrow panel): ?dock=1 */
+body.dock { padding: 0 6px 12px; max-width: none; font-size: 14px; }
+body.dock h2 { margin: 12px 2px 6px; font-size: 11px; }
+body.dock button { min-height: 40px; padding: 8px 6px; border-radius: 10px; }
+body.dock #topbar { padding: 6px 0 4px; }
+body.dock #modes { gap: 5px; }
+body.dock .mode { min-height: 46px; font-size: 13px; }
+body.dock .mode small { display: none; }
+body.dock #faces { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 5px; }
+body.dock .face { padding: 4px; border-radius: 10px; }
+body.dock .face .cap { font-size: 11px; min-height: 14px; }
+body.dock .badge { top: 7px; left: 7px; font-size: 10px; }
+body.dock .person { padding: 5px; gap: 6px; margin-bottom: 5px; }
+body.dock .person img, body.dock .person .ph { width: 40px; height: 40px; }
+body.dock #toast { left: 6px; right: 6px; bottom: 8px; padding: 9px; font-size: 13px; }
+body.dock summary { padding: 11px 0; }
+
 #toast { position: fixed; left: 12px; right: 12px; bottom: calc(14px + env(safe-area-inset-bottom)); max-width: 616px; margin: 0 auto; z-index: 50; padding: 14px; border-radius: var(--radius); font-weight: 600; text-align: center; background: var(--panel2); box-shadow: 0 6px 24px #0008; }
 #toast.good { background: var(--ok); color: #04210f; }
 #toast.bad { background: var(--red); color: #fff; }
@@ -179,6 +196,8 @@ details[open] summary::after { content: "\25B4"; }
     if (c) { pin = c; try { localStorage.setItem(CODE_KEY, c); } catch (e) {} }
     try { history.replaceState(null, "", location.pathname + location.search); } catch (e) { location.hash = ""; }
   })();
+  // Embedded in the OBS dock: compact layout (the flag is in the query, so it survives the fragment removal).
+  if (/[?&]dock=1(&|$)/.test(location.search || "")) document.body.classList.add("dock");
   var online = true;
   var state = { mode: "normal", style: "pixel", strength: 50 };
   var lastKnownJson = "", lastLiveJson = "";

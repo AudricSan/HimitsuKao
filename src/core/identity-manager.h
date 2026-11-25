@@ -15,6 +15,18 @@
 
 namespace himitsukao {
 
+// Colour of a debug detection box: unknown face (masked), known person, face being enrolled.
+enum class BoxColor { Red, Green, Orange };
+
+// Known (non-empty person_id) wins over a pending enrollment, which wins over unknown.
+BoxColor box_color_for(const Track &track, bool enrolling);
+
+struct DebugBox {
+	int track_id = 0;
+	Rect rect; // padded like the mask, so that it matches the blur
+	BoxColor color = BoxColor::Red;
+};
+
 enum class EnrollState { Unknown, Pending, Done, Failed };
 
 struct EnrollStatus {
@@ -88,6 +100,8 @@ public:
 	std::vector<Track> snapshot() const;
 	// Mask rectangles of the published tracks (known people skipped).
 	std::vector<Rect> masks(int64_t now_ms, int64_t hold_ms, float padding, bool include_known = false) const;
+	// Every track seen within hold_ms (known people included) with its debug colour.
+	std::vector<DebugBox> debug_boxes(int64_t now_ms, int64_t hold_ms, float padding) const;
 
 private:
 	struct Request {
@@ -114,6 +128,7 @@ private:
 	IdentityConfig config_;
 	std::vector<Request> incoming_;
 	std::set<std::string> incoming_clears_;
+	std::multiset<int> pending_tracks_; // track ids with an enrollment queued or in progress
 
 	std::vector<Request> active_; // worker thread only
 	std::atomic<size_t> pending_{0};

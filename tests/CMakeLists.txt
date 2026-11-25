@@ -1,4 +1,4 @@
-add_executable(himitsukao_tests test-main.cpp test-identity.inc test-api.inc test-security.inc)
+add_executable(himitsukao_tests test-main.cpp test-identity.inc test-api.inc test-security.inc test-ui.inc)
 target_link_libraries(himitsukao_tests PRIVATE himitsukao_core)
 target_compile_definitions(
   himitsukao_tests

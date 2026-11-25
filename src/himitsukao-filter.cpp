@@ -58,6 +58,8 @@ constexpr const char *kRegenCode = "regen_code";
 constexpr const char *kShowCode = "show_code";
 constexpr const char *kMode = "mode";
 constexpr const char *kEnablePhone = "enable_phone";
+constexpr const char *kDebugBoxes = "debug_boxes";
+constexpr const char *kDebugInfo = "debug_info";
 
 int64_t now_ms()
 {
@@ -80,6 +82,7 @@ struct himitsukao_filter {
 	std::atomic<int> analysis_fps{15};
 	std::atomic<float> recog_threshold{0.363f};
 	std::atomic<int> recheck_ms{1000};
+	std::atomic<bool> debug_boxes{false};
 
 	// Graphics-thread only.
 	gs_effect_t *pixelate_effect = nullptr;
@@ -304,6 +307,7 @@ void apply_settings(himitsukao_filter *f, obs_data_t *settings, bool push_global
 	f->analysis_fps = std::max(1, static_cast<int>(obs_data_get_int(settings, kAnalysisFps)));
 	f->recog_threshold = static_cast<float>(obs_data_get_double(settings, kRecogThreshold));
 	f->recheck_ms = std::max(100, static_cast<int>(obs_data_get_int(settings, kRecheckMs)));
+	f->debug_boxes = obs_data_get_bool(settings, kDebugBoxes);
 	if (f->identity) {
 		himitsukao::IdentityConfig cfg;
 		cfg.threshold = f->recog_threshold;
@@ -358,6 +362,7 @@ void filter_get_defaults(obs_data_t *settings)
 	obs_data_set_default_int(settings, kStrength, 50);
 	obs_data_set_default_int(settings, kServerPort, 8787);
 	obs_data_set_default_bool(settings, kEnablePhone, false);
+	obs_data_set_default_bool(settings, kDebugBoxes, false);
 }
 
 // The access code is hidden by default; the "Show code" button reveals it (until the dialog is reopened).
@@ -451,6 +456,10 @@ obs_properties_t *filter_get_properties(void *data)
 	obs_property_list_add_string(mode, obs_module_text("ModeFacesAll"), "faces_all");
 	obs_property_list_add_string(mode, obs_module_text("ModeFrameAll"), "frame_all");
 	obs_property_list_add_string(mode, obs_module_text("ModeOff"), "off");
+
+	obs_properties_add_bool(props, kDebugBoxes, obs_module_text("ShowDetectionBoxes"));
+	obs_property_t *debug_info = obs_properties_add_text(props, kDebugInfo, obs_module_text("DebugBoxesWarning"), OBS_TEXT_INFO);
+	obs_property_text_set_info_type(debug_info, OBS_TEXT_INFO_WARNING);
 
 	obs_properties_add_float_slider(props, kThreshold, obs_module_text("DetectionThreshold"), 0.2, 0.9, 0.05);
 	obs_properties_add_int_slider(props, kHoldMs, obs_module_text("MaskHoldMs"), 0, 1000, 10);
@@ -654,6 +663,53 @@ void draw_gaussian(himitsukao_filter *f, gs_texture_t *tex, uint32_t w, uint32_t
 	}
 }
 
+// Debug overlay: one outline per live track (the padded mask rectangle): red = unknown, green = known person,
+// orange = enrollment pending. Drawn with the base solid effect as four thin sprites.
+void draw_debug_boxes(const std::vector<himitsukao::DebugBox> &boxes, uint32_t w, uint32_t h)
+{
+	if (boxes.empty())
+		return;
+	const int thickness = std::max(2, static_cast<int>(std::lround(3.0f * std::max(1.0f, static_cast<float>(h) / 1080.0f))));
+	gs_effect_t *solid = obs_get_base_effect(OBS_EFFECT_SOLID);
+	gs_eparam_t *color_param = gs_effect_get_param_by_name(solid, "color");
+	auto fill = [&](uint32_t x, uint32_t y, uint32_t cw, uint32_t ch) {
+		if (cw == 0 || ch == 0)
+			return;
+		gs_matrix_push();
+		gs_matrix_translate3f(static_cast<float>(x), static_cast<float>(y), 0.0f);
+		while (gs_effect_loop(solid, "Solid"))
+			gs_draw_sprite(nullptr, 0, cw, ch);
+		gs_matrix_pop();
+	};
+	for (const auto &b : boxes) {
+		vec4 color;
+		switch (b.color) {
+		case himitsukao::BoxColor::Green:
+			vec4_set(&color, 0.15f, 0.85f, 0.30f, 1.0f);
+			break;
+		case himitsukao::BoxColor::Orange:
+			vec4_set(&color, 1.0f, 0.60f, 0.10f, 1.0f);
+			break;
+		case himitsukao::BoxColor::Red:
+		default:
+			vec4_set(&color, 0.95f, 0.15f, 0.15f, 1.0f);
+			break;
+		}
+		gs_effect_set_vec4(color_param, &color);
+		const std::vector<pixel_rect> px = to_pixel_rects({b.rect}, w, h);
+		if (px.empty())
+			continue;
+		const pixel_rect r = px[0];
+		const uint32_t rw = r.x1 - r.x0;
+		const uint32_t rh = r.y1 - r.y0;
+		const uint32_t t = std::min<uint32_t>(static_cast<uint32_t>(thickness), std::min(rw, rh) / 2 + 1);
+		fill(r.x0, r.y0, rw, t);                   // top
+		fill(r.x0, r.y1 > t ? r.y1 - t : r.y0, rw, t); // bottom
+		fill(r.x0, r.y0, t, rh);                   // left
+		fill(r.x1 > t ? r.x1 - t : r.x0, r.y0, t, rh); // right
+	}
+}
+
 void draw_masks(himitsukao_filter *f, gs_texture_t *tex, uint32_t w, uint32_t h,
 		const std::vector<himitsukao::Rect> &masks, himitsukao::Style style, int strength, bool whole_frame)
 {
@@ -776,6 +832,10 @@ void filter_video_render(void *data, gs_effect_t *)
 		}
 		draw_masks(f, tex, w, h, masks, style, strength, mode == himitsukao::Mode::FrameAll);
 	}
+
+	// Debug overlay, also in "off" mode so that tuning works with the blur off; nothing in the whole-frame mode.
+	if (f->debug_boxes.load() && f->identity && mode != himitsukao::Mode::FrameAll)
+		draw_debug_boxes(f->identity->debug_boxes(now_ms(), f->hold_ms.load(), f->padding.load()), w, h);
 }
 
 uint32_t filter_get_width(void *data)

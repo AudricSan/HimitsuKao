@@ -6,6 +6,7 @@ project(${_name} VERSION ${_version})
 
 option(ENABLE_FRONTEND_API "Use obs-frontend-api for UI functionality" OFF)
 option(ENABLE_QT "Use Qt functionality" OFF)
+option(HIMITSUKAO_ENABLE_DOCK "Add the HimitsuKao dock (obs-browser panel) to OBS; needs ENABLE_QT and ENABLE_FRONTEND_API" ON)
 option(HIMITSUKAO_BUILD_TESTS "Build the unit tests (run with ctest)" OFF)
 
 include(compilerconfig)
@@ -77,7 +78,7 @@ if(ENABLE_FRONTEND_API)
 endif()
 
 if(ENABLE_QT)
-  find_package(Qt6 COMPONENTS Widgets Core)
+  find_package(Qt6 REQUIRED COMPONENTS Widgets Core)
   target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Qt6::Core Qt6::Widgets)
   target_compile_options(
     ${CMAKE_PROJECT_NAME}
@@ -89,7 +90,15 @@ if(ENABLE_QT)
   )
 endif()
 
-target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/plugin-main.cpp src/himitsukao-filter.cpp src/himitsukao-filter.h src/plugin-service.cpp src/plugin-service.h src/net-info.cpp src/net-info.h)
+target_sources(${CMAKE_PROJECT_NAME} PRIVATE src/plugin-main.cpp src/himitsukao-filter.cpp src/himitsukao-filter.h src/plugin-service.cpp src/plugin-service.h src/net-info.cpp src/net-info.h src/dock.cpp src/dock.h)
+
+# The dock embeds the management page through obs-browser's panel API (header vendored in third_party/obs-browser).
+if(HIMITSUKAO_ENABLE_DOCK AND ENABLE_QT AND ENABLE_FRONTEND_API)
+  target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE HIMITSUKAO_DOCK)
+  target_include_directories(${CMAKE_PROJECT_NAME} SYSTEM PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third_party")
+else()
+  message(STATUS "HimitsuKao: OBS dock disabled (needs HIMITSUKAO_ENABLE_DOCK, ENABLE_QT and ENABLE_FRONTEND_API)")
+endif()
 
 set_target_properties_plugin(${CMAKE_PROJECT_NAME} PROPERTIES OUTPUT_NAME ${_name})
 

@@ -20,6 +20,7 @@ with this program. If not, see <https://www.gnu.org/licenses/>
 #include <plugin-support.h>
 
 #include "himitsukao-filter.h"
+#include "dock.h"
 #include "plugin-service.h"
 
 OBS_DECLARE_MODULE()
@@ -34,12 +35,14 @@ bool obs_module_load(void)
 {
 	plugin_service_init();
 	register_himitsukao_filter();
+	dock_init();
 	obs_log(LOG_INFO, "plugin loaded successfully (version %s)", PLUGIN_VERSION);
 	return true;
 }
 
 void obs_module_unload(void)
 {
+	dock_shutdown();
 	plugin_service_shutdown();
 	obs_log(LOG_INFO, "plugin unloaded");
 }

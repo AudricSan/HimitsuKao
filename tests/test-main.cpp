@@ -29,6 +29,7 @@
 #include "ip-filter.h"
 #include "image-utils.h"
 #include "runtime-state.h"
+#include "server-binding.h"
 #include "server-config.h"
 #include "face-tracker.h"
 
@@ -186,6 +187,7 @@ static void test_detector_smoke()
 #include "test-identity.inc"
 #include "test-api.inc"
 #include "test-security.inc"
+#include "test-ui.inc"
 
 int main()
 {
@@ -237,6 +239,9 @@ int main()
 		{"enroll_queue_cap_and_board_prune", test_enroll_queue_cap_and_board_prune},
 		{"config_enabled_and_migration", test_config_enabled_and_migration},
 		{"http_host_and_limits", test_http_host_and_limits},
+		{"server_binding_decision", test_server_binding_decision},
+		{"box_colors", test_box_colors},
+		{"debug_boxes", test_debug_boxes},
 	};
 	for (const auto &t : tests) {
 		const int before = g_failures;
