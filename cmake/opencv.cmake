@@ -10,7 +10,7 @@ set(_ocv_archive "${_ocv_root}/opencv-${HIMITSUKAO_OPENCV_VERSION}.zip")
 set(_ocv_source "${_ocv_root}/opencv-${HIMITSUKAO_OPENCV_VERSION}")
 set(_ocv_build "${_ocv_root}/build-${CMAKE_SYSTEM_PROCESSOR}")
 # Bump the recipe number whenever the OpenCV options below change: it triggers a rebuild.
-set(_ocv_recipe 2)
+set(_ocv_recipe 3)
 set(_ocv_install "${_ocv_root}/install-${CMAKE_SYSTEM_PROCESSOR}-r${_ocv_recipe}")
 
 file(GLOB_RECURSE _ocv_config_files "${_ocv_install}/OpenCVConfig.cmake")
@@ -98,6 +98,26 @@ if(NOT _ocv_config_files)
   endif()
   if(NOT CMAKE_CONFIGURATION_TYPES)
     list(APPEND _ocv_args -DCMAKE_BUILD_TYPE=Release)
+  endif()
+
+  # macOS: the plugin is a universal binary, so OpenCV must be too. Architecture lists contain ';', so
+  # they go through an initial-cache script instead of the command line. Runtime SIMD dispatch is off
+  # because OpenCV's per-architecture dispatch does not support multi-architecture builds.
+  if(APPLE)
+    set(_ocv_archs "${CMAKE_OSX_ARCHITECTURES}")
+    if(NOT _ocv_archs)
+      set(_ocv_archs "${CMAKE_SYSTEM_PROCESSOR}")
+    endif()
+    set(_ocv_cache "${_ocv_root}/apple-cache.cmake")
+    file(
+      WRITE "${_ocv_cache}"
+      "set(CMAKE_OSX_ARCHITECTURES \"${_ocv_archs}\" CACHE STRING \"\")\n"
+      "set(CMAKE_OSX_DEPLOYMENT_TARGET \"${CMAKE_OSX_DEPLOYMENT_TARGET}\" CACHE STRING \"\")\n"
+      "set(CPU_BASELINE \"\" CACHE STRING \"\")\n"
+      "set(CPU_DISPATCH \"\" CACHE STRING \"\")\n"
+      "set(ENABLE_LIBJPEG_TURBO_SIMD OFF CACHE BOOL \"\")\n"
+    )
+    list(APPEND _ocv_args -C "${_ocv_cache}")
   endif()
 
   execute_process(

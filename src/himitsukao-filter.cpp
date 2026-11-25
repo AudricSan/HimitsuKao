@@ -471,8 +471,8 @@ obs_properties_t *filter_get_properties(void *data)
 	obs_properties_add_int(props, kServerPort, obs_module_text("PhonePort"), 1024, 65535, 1);
 	obs_property_t *info = obs_properties_add_text(props, kServerInfo, server_info_text().c_str(), OBS_TEXT_INFO);
 	obs_property_text_set_info_type(info, OBS_TEXT_INFO_NORMAL);
-	obs_properties_add_button(props, kShowCode, obs_module_text("ShowCode"), show_code_clicked);
-	obs_properties_add_button(props, kRegenCode, obs_module_text("RegenerateCode"), regenerate_code_clicked);
+	obs_properties_add_button2(props, kShowCode, obs_module_text("ShowCode"), show_code_clicked, f);
+	obs_properties_add_button2(props, kRegenCode, obs_module_text("RegenerateCode"), regenerate_code_clicked, f);
 	return props;
 }
 
