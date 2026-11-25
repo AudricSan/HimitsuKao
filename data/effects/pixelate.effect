@@ -1,0 +1,43 @@
+// Mosaic (pixelate) effect used to hide faces.
+// Meant to be drawn with gs_draw_sprite_subregion(): the sprite UVs are the absolute UVs of the
+// source texture, so the mosaic grid is aligned on the full frame and stays put while a mask moves.
+
+uniform float4x4 ViewProj;
+uniform texture2d image;
+// Size of one mosaic cell, in UV units (block size in pixels / texture size).
+uniform float2 block_uv;
+
+sampler_state point_clamp {
+	Filter    = Point;
+	AddressU  = Clamp;
+	AddressV  = Clamp;
+};
+
+struct VertData {
+	float4 pos : POSITION;
+	float2 uv  : TEXCOORD0;
+};
+
+VertData VSDefault(VertData v_in)
+{
+	VertData vert_out;
+	vert_out.pos = mul(float4(v_in.pos.xyz, 1.0), ViewProj);
+	vert_out.uv  = v_in.uv;
+	return vert_out;
+}
+
+float4 PSPixelate(VertData v_in) : TARGET
+{
+	float2 cell   = floor(v_in.uv / block_uv);
+	float2 center = (cell + 0.5) * block_uv;
+	return image.Sample(point_clamp, center);
+}
+
+technique Draw
+{
+	pass
+	{
+		vertex_shader = VSDefault(v_in);
+		pixel_shader  = PSPixelate(v_in);
+	}
+}
