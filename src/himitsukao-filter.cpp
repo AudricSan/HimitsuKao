@@ -599,8 +599,9 @@ void draw_solid(const std::vector<pixel_rect> &rects)
 	gs_effect_t *solid = obs_get_base_effect(OBS_EFFECT_SOLID);
 	vec4 color;
 	vec4_set(&color, 0.125f, 0.125f, 0.125f, 1.0f); // fixed dark grey
-	gs_effect_set_vec4(gs_effect_get_param_by_name(solid, "color"), &color);
+	gs_eparam_t *color_param = gs_effect_get_param_by_name(solid, "color");
 	for (const auto &r : rects) {
+		gs_effect_set_vec4(color_param, &color); // again for each mask: see the note above draw_pixel()
 		gs_matrix_push();
 		gs_matrix_translate3f(static_cast<float>(r.x0), static_cast<float>(r.y0), 0.0f);
 		while (gs_effect_loop(solid, "Solid"))
@@ -609,16 +610,20 @@ void draw_solid(const std::vector<pixel_rect> &rects)
 	}
 }
 
+// gs_effect_loop() ends with gs_technique_end(), which clears the values of every effect parameter. So the
+// parameters must be set again before each loop, or every mask after the first one samples no texture.
 void draw_pixel(himitsukao_filter *f, gs_texture_t *tex, uint32_t w, uint32_t h, const std::vector<pixel_rect> &rects,
 		int block_px)
 {
 	gs_effect_t *effect = f->pixelate_effect;
+	gs_eparam_t *image = gs_effect_get_param_by_name(effect, "image");
+	gs_eparam_t *block_param = gs_effect_get_param_by_name(effect, "block_uv");
 	vec2 block;
 	vec2_set(&block, static_cast<float>(block_px) / static_cast<float>(w),
 		 static_cast<float>(block_px) / static_cast<float>(h));
-	gs_effect_set_texture(gs_effect_get_param_by_name(effect, "image"), tex);
-	gs_effect_set_vec2(gs_effect_get_param_by_name(effect, "block_uv"), &block);
 	for (const auto &r : rects) {
+		gs_effect_set_texture(image, tex);
+		gs_effect_set_vec2(block_param, &block);
 		gs_matrix_push();
 		gs_matrix_translate3f(static_cast<float>(r.x0), static_cast<float>(r.y0), 0.0f);
 		while (gs_effect_loop(effect, "Draw"))
@@ -653,11 +658,11 @@ void draw_gaussian(himitsukao_filter *f, gs_texture_t *tex, uint32_t w, uint32_t
 	gs_blend_function(GS_BLEND_ONE, GS_BLEND_ZERO);
 	vec2 dir;
 	vec2_set(&dir, spacing_px / static_cast<float>(w), 0.0f);
-	gs_effect_set_texture(image, tex);
-	gs_effect_set_vec2(step, &dir);
 	for (const auto &r : rects) {
 		const uint32_t y0 = r.y0 > margin ? r.y0 - margin : 0;
 		const uint32_t y1 = std::min<uint32_t>(h, r.y1 + margin);
+		gs_effect_set_texture(image, tex); // again for each mask: see the note above draw_pixel()
+		gs_effect_set_vec2(step, &dir);
 		gs_matrix_push();
 		gs_matrix_translate3f(static_cast<float>(r.x0), static_cast<float>(y0), 0.0f);
 		while (gs_effect_loop(effect, "Draw"))
@@ -673,9 +678,9 @@ void draw_gaussian(himitsukao_filter *f, gs_texture_t *tex, uint32_t w, uint32_t
 		return;
 	}
 	vec2_set(&dir, 0.0f, spacing_px / static_cast<float>(h));
-	gs_effect_set_texture(image, blurred);
-	gs_effect_set_vec2(step, &dir);
 	for (const auto &r : rects) {
+		gs_effect_set_texture(image, blurred); // again for each mask: see the note above draw_pixel()
+		gs_effect_set_vec2(step, &dir);
 		gs_matrix_push();
 		gs_matrix_translate3f(static_cast<float>(r.x0), static_cast<float>(r.y0), 0.0f);
 		while (gs_effect_loop(effect, "Draw"))
@@ -694,9 +699,11 @@ void draw_debug_boxes(const std::vector<himitsukao::DebugBox> &boxes, uint32_t w
 		std::max(2, static_cast<int>(std::lround(3.0f * std::max(1.0f, static_cast<float>(h) / 1080.0f))));
 	gs_effect_t *solid = obs_get_base_effect(OBS_EFFECT_SOLID);
 	gs_eparam_t *color_param = gs_effect_get_param_by_name(solid, "color");
+	vec4 color;
 	auto fill = [&](uint32_t x, uint32_t y, uint32_t cw, uint32_t ch) {
 		if (cw == 0 || ch == 0)
 			return;
+		gs_effect_set_vec4(color_param, &color); // again for each side: see the note above draw_pixel()
 		gs_matrix_push();
 		gs_matrix_translate3f(static_cast<float>(x), static_cast<float>(y), 0.0f);
 		while (gs_effect_loop(solid, "Solid"))
@@ -704,7 +711,6 @@ void draw_debug_boxes(const std::vector<himitsukao::DebugBox> &boxes, uint32_t w
 		gs_matrix_pop();
 	};
 	for (const auto &b : boxes) {
-		vec4 color;
 		switch (b.color) {
 		case himitsukao::BoxColor::Green:
 			vec4_set(&color, 0.15f, 0.85f, 0.30f, 1.0f);
@@ -717,7 +723,6 @@ void draw_debug_boxes(const std::vector<himitsukao::DebugBox> &boxes, uint32_t w
 			vec4_set(&color, 0.95f, 0.15f, 0.15f, 1.0f);
 			break;
 		}
-		gs_effect_set_vec4(color_param, &color);
 		const std::vector<pixel_rect> px = to_pixel_rects({b.rect}, w, h);
 		if (px.empty())
 			continue;

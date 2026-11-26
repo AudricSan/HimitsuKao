@@ -8,7 +8,7 @@ An OBS Studio video filter for IRL streamers that **blurs every face that is not
 
 You manage the list from your phone during the live: tap a face that is on screen right now to mark that person as known, swipe them away to blur them again.
 
-> Status: early public version (0.1.1). Test it on a recording before relying on it during a live.
+> Status: early public version (0.1.2). Test it on a recording before relying on it during a live.
 
 ## Installation
 
