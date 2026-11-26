@@ -5,6 +5,7 @@
 !/.github
 !/build-aux
 !/cmake
+!/assets
 !/data
 !/src
 !/third_party
